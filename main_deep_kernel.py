@@ -1,9 +1,5 @@
-import time
 
 from generic_fnc import *
-
-sys.path.append('/alpha-beta-CROWN/complete_verifier')
-
 from dynamics_script import *
 from gp_scripts import *
 from space_discretize_scripts import *
