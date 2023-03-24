@@ -83,7 +83,7 @@ elif experiment_number == 2:
     goal_set.extend(goal_a)
     goal_set.extend(goal_c)
 elif experiment_number == 3:
-    global_dir_name = "sys_3d_retry"
+    global_dir_name = "sys_3d"
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     use_local_gp = True
@@ -153,7 +153,7 @@ elif len(X) == 3:
     if global_dir_name == "sys_3d_less_fine":
         grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.1}
     if global_dir_name == "sys_3d":
-        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
+        grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1}
 
     large_grid = {"x1": 5, "x2": 1, "x3": 1}
 elif len(X) == 5:
@@ -259,107 +259,106 @@ else:
 # 3. Get posteriors of GP
 # =====================================================================================
 
-if get_probs:
-    file_name = global_exp_dir + "/region_data.pkl"
-    region_data = None
-    if reuse_regions and os.path.exists(file_name):
-        print("Loading previous region data...")
-        region_data = dict_load(file_name)
+file_name = global_exp_dir + "/region_data.pkl"
+region_data = None
+if reuse_regions and os.path.exists(file_name):
+    print("Loading previous region data...")
+    region_data = dict_load(file_name)
 
-    if (region_data is None) or any(region_data[mode][0] is None for mode in modes):
-        print("Calculating post-regions...")
+if (region_data is None) or any(region_data[mode][0] is None for mode in modes):
+    print("Calculating post-regions...")
 
-        if region_data is None:
-            # a list where each input has the data for a different mode
-            # data for each mode organized as [mean bounds, sig bounds, NN linear transform]
-            # mean bounds is a tuple of tuples ((dim_upper, dim_lower) for each dim), same for sig
-            # NN linear transform is a tuple of tuples ((lA, uA, l_bias, u_bias, bounds) for each dim)
-            region_data = [[None, None, None] for mode in modes]
+    if region_data is None:
+        # a list where each input has the data for a different mode
+        # data for each mode organized as [mean bounds, sig bounds, NN linear transform]
+        # mean bounds is a tuple of tuples ((dim_upper, dim_lower) for each dim), same for sig
+        # NN linear transform is a tuple of tuples ((lA, uA, l_bias, u_bias, bounds) for each dim)
+        region_data = [[None, None, None] for mode in modes]
 
-        tic = time.perf_counter()
+    tic = time.perf_counter()
 
-        for mode in modes:
-            sub_tic = time.perf_counter()
-            if region_data[mode][0] is None:
-                if use_fixed_nn and use_local_gp:
-                    result = local_dkl_posts_fixed_nn(unknown_dyn_gp[mode], mode, extents, region_info[mode],
-                                                      out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
+    for mode in modes:
+        sub_tic = time.perf_counter()
+        if region_data[mode][0] is None:
+            if use_fixed_nn and use_local_gp:
+                result = local_dkl_posts_fixed_nn(unknown_dyn_gp[mode], mode, extents, region_info[mode],
+                                                  out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
+            else:
+                x_data = torch.tensor(np.transpose(all_data[mode][0]), dtype=torch.float32)
+                y_data = np.transpose(all_data[mode][1])
+                if use_fixed_nn:
+                    result = dkl_posts_fixed_nn(unknown_dyn_gp[mode], x_data, y_data, mode, extents,
+                                                out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
                 else:
-                    x_data = torch.tensor(np.transpose(all_data[mode][0]), dtype=torch.float32)
-                    y_data = np.transpose(all_data[mode][1])
-                    if use_fixed_nn:
-                        result = dkl_posts_fixed_nn(unknown_dyn_gp[mode], x_data, y_data, mode, extents,
-                                                    out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
-                    else:
-                        result = dkl_posts(unknown_dyn_gp[mode], x_data, y_data, mode, extents,
-                                           out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
-                region_data[mode] = result
+                    result = dkl_posts(unknown_dyn_gp[mode], x_data, y_data, mode, extents,
+                                       out_dim, crown_dir, EXPERIMENT_DIR, threads=threads)
+            region_data[mode] = result
 
-                dict_save(file_name, region_data)
+            dict_save(file_name, region_data)
 
-            sub_toc = time.perf_counter()
-            print(f"Finished post region calculation for mode {mode} in {sub_toc - sub_tic:0.4f} seconds.")
+        sub_toc = time.perf_counter()
+        print(f"Finished post region calculation for mode {mode} in {sub_toc - sub_tic:0.4f} seconds.")
 
-        toc = time.perf_counter()
-        print(f"Region generation took {toc - tic:0.4f} seconds.")
-        dict_save(file_name, region_data)
+    toc = time.perf_counter()
+    print(f"Region generation took {toc - tic:0.4f} seconds.")
+    dict_save(file_name, region_data)
 
-    if not run_tests:
-        del unknown_dyn_gp  # no longer need to carry around all the gps
-    # =====================================================================================
-    # 3. Construct transition bounds from posteriors
-    # =====================================================================================
+if not run_tests:
+    del unknown_dyn_gp  # no longer need to carry around all the gps
+# =====================================================================================
+# 3. Construct transition bounds from posteriors
+# =====================================================================================
 
-    file_name = global_exp_dir + "/transition_probs.pkl"
-    extents = discretize_space_list(X, grid_size)
-    # reuse_regions = False
-    if reuse_regions and os.path.exists(file_name):
-        print("Loading previous transitions data...")
-        probs = dict_load(file_name)
-        min_probs = probs["min"]
-        max_probs = probs["max"]
-        del probs
+file_name = global_exp_dir + "/transition_probs.pkl"
+extents = discretize_space_list(X, grid_size)
+# reuse_regions = False
+if reuse_regions and os.path.exists(file_name):
+    print("Loading previous transitions data...")
+    probs = dict_load(file_name)
+    min_probs = probs["min"]
+    max_probs = probs["max"]
+    del probs
+else:
+    print('Calculating transition probabilities...')
+    tic = time.perf_counter()
+    threads = 12
+    if num_extents*len(modes) > 10000:
+        # need to do this in sections to save space
+        file_name_partial = global_exp_dir + "/transition_probs_partial.pkl"
+        min_probs, max_probs = generate_trans_par_dkl_subsections(extents, region_data, modes, threads,
+                                                                  file_name_partial)
     else:
-        print('Calculating transition probabilities...')
-        tic = time.perf_counter()
-        threads = 12
-        if num_extents*len(modes) > 10000:
-            # need to do this in sections to save space
-            file_name_partial = global_exp_dir + "/transition_probs_partial.pkl"
-            min_probs, max_probs = generate_trans_par_dkl_subsections(extents, region_data, modes, threads,
-                                                                      file_name_partial)
-        else:
-            min_probs, max_probs = generate_trans_par_dkl(extents, region_data, modes, threads)
-            
-        toc = time.perf_counter()
-        print(f"It took {toc - tic} seconds to get the transition probabilities")
-        probs = {"min": min_probs, "max": max_probs}
-        dict_save(file_name, probs)
-        del probs
+        min_probs, max_probs = generate_trans_par_dkl(extents, region_data, modes, threads)
 
-    # =====================================================================================
-    # 4. Run synthesis/verification
-    # =====================================================================================
-    print('Generating IMDP Model')
-    unsafe_label = "b"
-    label_fn = label_states(labels, extents, unsafe_label)
-    imdp = IMDPModel(states, modes, min_probs, max_probs, label_fn, extents)
-    del max_probs, min_probs, extents
+    toc = time.perf_counter()
+    print(f"It took {toc - tic} seconds to get the transition probabilities")
+    probs = {"min": min_probs, "max": max_probs}
+    dict_save(file_name, probs)
+    del probs
 
-    if do_synthesis:
-        dfa = specification_to_dfa(specification)
-        pimdp = construct_pimdp(dfa, imdp)
-    else:
-        # for now just a bounded until of !bUa
-        k = 5  # number of time steps
-        imdp_filepath = global_exp_dir + f"/imdp-{k}.txt"
-        phi1 = "!b"
-        phi2 = "a"
-        # phi1 U<k phi2
-        res = bounded_until(imdp, phi1, phi2, k, imdp_filepath, synthesis_flag=True)
+# =====================================================================================
+# 4. Run synthesis/verification
+# =====================================================================================
+print('Generating IMDP Model')
+unsafe_label = "b"
+label_fn = label_states(labels, extents, unsafe_label)
+imdp = IMDPModel(states, modes, min_probs, max_probs, label_fn, extents)
+del max_probs, min_probs, extents
 
-        # now plot the results
-        print('plotting results')
-        plot_verification_results(res, imdp, global_exp_dir, k, region_labels, min_threshold=.9)
+if do_synthesis:
+    dfa = specification_to_dfa(specification)
+    pimdp = construct_pimdp(dfa, imdp)
+else:
+    # for now just a bounded until of !bUa
+    k = 5  # number of time steps
+    imdp_filepath = global_exp_dir + f"/imdp-{k}.txt"
+    phi1 = "!b"
+    phi2 = "a"
+    # phi1 U<k phi2
+    res = bounded_until(imdp, phi1, phi2, k, imdp_filepath, synthesis_flag=True)
+
+    # now plot the results
+    print('plotting results')
+    plot_verification_results(res, imdp, global_exp_dir, k, region_labels, min_threshold=.9)
 
 print("Finished")

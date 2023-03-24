@@ -334,14 +334,6 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
         y_data = np.transpose(region_info[sub_idx][1])
         n_obs = max(np.shape(y_data))
 
-        # check bounds over sub_region, this will converge for sigma bounds almost surely
-        rl = convert_to_list(region)
-        os.chdir(crown_dir)
-        res = run_dkl_crown_parallel(rl, crown_dir, nn_out_dim, mode, 0, num_regions)
-        os.chdir(experiment_dir)
-        x_L = np.array(res[4]).astype(np.float64)
-        x_U = np.array(res[5]).astype(np.float64)
-
         # identify which extents are in this region and their indices
         specific_extents = extents_in_region(extents, region)
 
@@ -377,25 +369,29 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
             K_a = np.array(K_)
             K_inv_a = np.array(K_inv)
             alpha = np.array(alpha_vec)
-            out_2 = output_scale**2.
+            out_2 = output_scale
             len_2 = length_scale**2.
             theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
             K_inv_scaled = scale_cKinv(K_a, out_2, noise)
+            # K_inv_scaled = K_inv * out_2
 
             # Get bounds on the mean function
             # TODO, figure out why the julia call doesn't work in pool, still pretty fast without it though
-            mean_bound = bound_local_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                                   theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
-                                                   max_flag=False)
+            mean_bound, x_L, x_U = bound_local_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
+                                                             theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
+                                                             max_flag=False)
             mean_bound = bound_local_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
                                                    theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
                                                    max_flag=True)
 
             # get bounds on variance
             worst_case_sig = compute_sig_bounds_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, x_L, x_U, theta_vec_2,
-                                                   theta_vec, K_inv_scaled, max_iterations=500)
-            worst_sig = worst_case_sig[2]
+                                                   theta_vec, K_inv_scaled, max_iterations=500, bound_epsilon=1e-4)
+            worst_sig = np.sqrt(worst_case_sig[2])
+            if (worst_case_sig[2] - worst_case_sig[1]) > 1e-3:
+                worst_sig = np.min(0.3, worst_sig)
             print(f"Worst case sigma for sub-region {sub_idx+1} and dim {dim} is {worst_sig}")
+
             sig_bound = bound_local_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
                                                    theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound,
                                                    specific_extents, worst_case=worst_sig)
@@ -512,23 +508,35 @@ def bound_local_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, li
     if max_flag is False:
         # lower bound on mean
         # TODO, figure out how to parallelize
+        XL = None
+        XU = None
         for idx in specific_extents:
+            x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
+            x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
+
+            if XL is None:
+                XL = x_L
+                XU = x_U
+            else:
+                XL = np.minimum(XL, x_L)
+                XU = np.maximum(XU, x_U)
+
             mean_info = compute_mean_bounds_jl(x_gp, K_inv, alpha, output_scale, length_scale,
-                                               np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                               np.array(linear_transform[idx][dim][5]).astype(np.float64),
-                                               theta_vec_2, theta_vec)
+                                               x_L, x_U, theta_vec_2, theta_vec)
             mean_bound[idx][dim][0] = mean_info[1]
+
+        return mean_bound, XL, XU
 
     else:
         # upper bound on mean
         for idx in specific_extents:
+            x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
+            x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
             mean_info = compute_mean_bounds_jl(x_gp, K_inv, -alpha, output_scale, length_scale,
-                                               np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                               np.array(linear_transform[idx][dim][5]).astype(np.float64),
-                                               theta_vec_2, theta_vec)
+                                               x_L, x_U, theta_vec_2, theta_vec)
             mean_bound[idx][dim][1] = -mean_info[1]
 
-    return mean_bound
+        return mean_bound
 
 
 def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, linear_transform, theta_vec_2,
@@ -544,10 +552,11 @@ def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scal
         x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
 
         sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, x_L, x_U, theta_vec_2,
-                                         theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag)
-        sig_ = sig_info[2]  # this is a std deviation
+                                         theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag,
+                                         bound_epsilon=1e-4)
+        sig_ = np.sqrt(sig_info[2])  # this is a std deviation
         if sig_ > worst_case:
-            print(f"Region {idx} has sig bounds {[sig_info[1], sig_info[2]]} in dim {dim}")
+            print(f"Region {idx} has sig bounds {np.sqrt([sig_info[1], sig_info[2]])} in dim {dim}")
             sig_ = worst_case
 
         if min_flag:

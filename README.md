@@ -1,6 +1,6 @@
 # Formal-Deep-Kernel-Synthesis
 
-This code makes use of the α,β-CROWN verifier which is developed by a team from CMU, UCLA, Drexel University, Columbia University and UIUC [1, 2, 3, 4]. The source code can be found here: https://github.com/Verified-Intelligence/alpha-beta-CROWN, their README file has been included in the folder alpha-beta-CROWN
+This code makes use of the α,β-CROWN verifier which is developed by a team from CMU, UCLA, Drexel University, Columbia University and UIUC [1, 2, 3, 4]. The source code can be found here: https://github.com/Verified-Intelligence/alpha-beta-CROWN, their README file has been included in the folder alpha-beta-CROWN/.
 
 Some modifications have been made from their main branch to produce needed outputs, hence the inclusion of the foler here.
 
@@ -16,14 +16,19 @@ This code is run in a miniconda environment that will install all the necessary 
 # Remove the old environment, if necessary.
 conda deactivate; conda env remove --name deep-kernel-syn
 # install all dependents into the deep-kernel-syn environment
-conda env create -f alpha-beta-CROWN/complete_verifier/environment.yml --name deep-kernel-syn
+conda create -f alpha-beta-CROWN/complete_verifier/environment.yml --name deep-kernel-syn
 # activate the environment
 conda activate deep-kernel-syn
-pip install ltlf2dfa onnx2pytorch progressbar shapely polytope scikit-learn gpytorch juliacall
 ```
 
+### BMDP Tool
+This package depends on the `bmdp-tool` here: https://github.com/aria-systems-group/bmdp-tool
 
-# Citation 
+The tool should be compiled using Make and the `synthesis` executable moved to a location on the user executable path e.g. `/usr/local/bin`.
+
+
+
+## Citation 
 [1] Xu, H. Zhang, S. Wang, Y. Wang, S. Jana, X. Lin, and C.-J. Hsieh,
 “Fast and Complete: Enabling complete neural network verification
 with rapid and massively parallel incomplete verifiers,” in International
