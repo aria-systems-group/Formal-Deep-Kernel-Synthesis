@@ -2,7 +2,6 @@ from import_script import *
 from crown_scripts import *
 import multiprocessing as mp
 from space_discretize_scripts import *
-from gp_bounding import *
 
 from juliacall import Main as jl
 
@@ -342,9 +341,7 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
         os.chdir(experiment_dir)
         x_L = np.array(res[4]).astype(np.float64)
         x_U = np.array(res[5]).astype(np.float64)
-        del res
-        print(f"{x_L}, {x_U}")
-        exit()
+
         # identify which extents are in this region and their indices
         specific_extents = extents_in_region(extents, region)
 
@@ -542,11 +539,10 @@ def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scal
     if min_flag:
         mi = 5
 
-    dims = np.shape(x_gp)[0]
-    x_trans = np.transpose(x_gp)
     for idx in specific_extents:
-        x_L, x_U = find_nearest_points(x_trans, np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                       np.array(linear_transform[idx][dim][5]).astype(np.float64), dims)
+        x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
+        x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
+
         sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, x_L, x_U, theta_vec_2,
                                          theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag)
         sig_ = sig_info[2]  # this is a std deviation
@@ -581,283 +577,6 @@ def extents_in_region(extents, region):
             valid.append(extent_idx)
 
     return valid
-
-
-def find_nearest_points(x, x_L, x_U, dims):
-    nearest_dist = 9e9
-    nearest_point = None
-    for training_point in x:
-        dist = 0
-        in_dims = True
-        for dim in range(dims):
-            dist += np.min([(x_L[dim] - training_point[dim])**2.,  (training_point[dim] - x_U[dim])**2.])
-            if not (x_L[dim] <= training_point[dim] <= x_U[dim]):
-                in_dims = False
-        if dist < nearest_dist:
-            nearest_dist = dist
-            nearest_point = training_point
-        if in_dims:
-            return x_L, x_U
-
-    # didn't contain a training point, artificially expand bound to the nearest point
-    new_x_L = np.minimum(nearest_point-.05, x_L)
-    new_x_U = np.maximum(nearest_point+.05, x_U)
-    return new_x_L, new_x_U
-
-
-def get_one_region(dkl_by_dim, extent_idx, dim, sub_idx, mode, extents, region_info, nn_out_dim, crown_dir, experiment_dir):
-    res = run_dkl_crown_parallel(extents[extent_idx], crown_dir, nn_out_dim, mode, 0, extent_idx)
-
-    region = region_info[sub_idx][2]
-    x_data = torch.tensor(np.transpose(region_info[sub_idx][0]), dtype=torch.float32)
-    y_data = np.transpose(region_info[sub_idx][1])
-    n_obs = max(np.shape(y_data))
-
-    dim_gp = dkl_by_dim[sub_idx][dim]
-    model = dim_gp[0]
-    model.cpu()  # unfortunately needs to be on cpu to access values
-    nn_portion = model.feature_extractor
-    with torch.no_grad():
-        kernel_inputs = nn_portion.forward(x_data)
-
-    noise = model.likelihood.noise.item()
-    noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-    covar_module = model.covar_module
-    kernel_mat = covar_module(kernel_inputs)
-    kernel_mat = kernel_mat.evaluate()
-    K_ = kernel_mat.detach().numpy() + noise_mat
-    # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-    K_ = (K_ + K_.transpose()) / 2.
-    K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
-
-    y_dim = np.reshape(y_data[:, dim], (n_obs,))
-    alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
-    length_scale = model.covar_module.base_kernel.lengthscale.item()
-    output_scale = model.covar_module.outputscale.item()
-
-    # convert to julia input structure
-    x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-    K_a = np.array(K_)
-    K_inv_a = np.array(K_inv)
-    alpha = np.array(alpha_vec)
-    out_2 = output_scale ** 2.
-    len_2 = length_scale ** 2.
-    theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-    K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-
-    x_L = np.array(res[4]).astype(np.float64)
-    x_U = np.array(res[5]).astype(np.float64)
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    lower_mean = mean_info[1]
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, -alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    print(f"mean bounds = {lower_mean} to {-mean_info[1]}")
-
-    mi = 500
-    sig_info = compute_sig_bounds_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, x_L, x_U, theta_vec_2, theta_vec,
-                                     K_inv_scaled, max_iterations=mi)
-    print(sig_info)
-
-    # y_gp = torch.tensor(y_dim, dtype=torch.float32)
-    # new_gp = NewGPModel(kernel_inputs, y_gp, dim_gp[1])
-    # new_gp.covar_module.outputscale = model.covar_module.outputscale
-    # new_gp.covar_module.base_kernel.lengthscale = model.covar_module.base_kernel.lengthscale
-    # new_gp.eval()
-    # sig_info_py = compute_sig_bounds_bnb(new_gp.covar_module, res[4], res[5], K_inv, theta_vec_2, kernel_inputs, 10,
-    #                                      1e-2, new_gp, dim_gp[1])
-    # print(sig_info_py)
-
-    info_dict = {"x": x_gp, "K": K_a, "K_inv": K_inv_a, "K_inv_scaled": K_inv_scaled, "alpha": alpha, "x_L": x_L,
-                 "x_U": x_U, "theta_vec_train_squared": theta_vec_2, "theta_vec": theta_vec, "sig2": out_2, "l2": len_2,
-                 "noise": noise}
-
-    file_name = experiment_dir + "/gp_components.pkl"
-    dict_save(file_name, info_dict)
-    exit()
-
-
-def mod_one_region(dkl_by_dim, true_dyn, extent_idx, dim, sub_idx, mode, extents, region_info, nn_out_dim, crown_dir, experiment_dir):
-    res = run_dkl_crown_parallel(extents[extent_idx], crown_dir, nn_out_dim, mode, 0, extent_idx)
-
-    region = region_info[sub_idx][2]
-
-    # add n datapoints in the region
-    n = 5
-    region_area = extents[extent_idx]
-    new_x = [np.random.uniform(region_area[k][0], region_area[k][1], n) for k in list(region_area)]
-    new_y = true_dyn(new_x)
-    new_x = np.reshape(new_x, [3, n])
-    new_y = np.reshape(new_y, [3, n])
-
-    x_in = region_info[sub_idx][0]
-    x_in = np.append(x_in, new_x, axis=1)
-
-    y_in = region_info[sub_idx][1]
-    y_in = np.append(y_in, new_y, axis=1)
-
-    x_data = torch.tensor(np.transpose(x_in), dtype=torch.float32)
-    y_data = np.transpose(y_in)
-    n_obs = max(np.shape(y_data))
-
-    dim_gp = dkl_by_dim[sub_idx][dim]
-    model = dim_gp[0]
-    model.cpu()  # unfortunately needs to be on cpu to access values
-    nn_portion = model.feature_extractor
-    with torch.no_grad():
-        kernel_inputs = nn_portion.forward(x_data)
-
-    noise = model.likelihood.noise.item()
-    noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-    covar_module = model.covar_module
-    kernel_mat = covar_module(kernel_inputs)
-    kernel_mat = kernel_mat.evaluate()
-    K_ = kernel_mat.detach().numpy() + noise_mat
-    # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-    K_ = (K_ + K_.transpose()) / 2.
-    K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
-
-    y_dim = np.reshape(y_data[:, dim], (n_obs,))
-    alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
-    length_scale = model.covar_module.base_kernel.lengthscale.item()
-    output_scale = model.covar_module.outputscale.item()
-
-    # convert to julia input structure
-    x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-    K_a = np.array(K_)
-    K_inv_a = np.array(K_inv)
-    alpha = np.array(alpha_vec)
-    out_2 = output_scale ** 2.
-    len_2 = length_scale ** 2.
-    theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-    K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-
-    x_L = np.array(res[4]).astype(np.float64)
-    x_U = np.array(res[5]).astype(np.float64)
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    lower_mean = mean_info[1]
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, -alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    print(f"mean bounds = {lower_mean} to {-mean_info[1]}")
-
-    mi = 500
-    sig_info = compute_sig_bounds_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, x_L, x_U, theta_vec_2, theta_vec,
-                                     K_inv_scaled, max_iterations=mi)
-    print(sig_info)
-
-    # info_dict = {"x": x_gp, "K": K_a, "K_inv": K_inv_a, "K_inv_scaled": K_inv_scaled, "alpha": alpha, "x_L": x_L,
-    #              "x_U": x_U, "theta_vec_train_squared": theta_vec_2, "theta_vec": theta_vec, "sig2": out_2, "l2": len_2}
-    #
-    # file_name = experiment_dir + "/gp_components.pkl"
-    # dict_save(file_name, info_dict)
-    exit()
-
-
-def grow_one_region(dkl_by_dim, extent_idx, dim, sub_idx, mode, extents, region_info, nn_out_dim, crown_dir, experiment_dir):
-    res = run_dkl_crown_parallel(extents[extent_idx], crown_dir, nn_out_dim, mode, 0, extent_idx)
-
-    region = region_info[sub_idx][2]
-    x_data = torch.tensor(np.transpose(region_info[sub_idx][0]), dtype=torch.float32)
-    y_data = np.transpose(region_info[sub_idx][1])
-    n_obs = max(np.shape(y_data))
-
-    dim_gp = dkl_by_dim[sub_idx][dim]
-    model = dim_gp[0]
-    model.cpu()  # unfortunately needs to be on cpu to access values
-    nn_portion = model.feature_extractor
-    with torch.no_grad():
-        kernel_inputs = nn_portion.forward(x_data)
-
-    noise = model.likelihood.noise.item()
-    noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-    covar_module = model.covar_module
-    kernel_mat = covar_module(kernel_inputs)
-    kernel_mat = kernel_mat.evaluate()
-    K_ = kernel_mat.detach().numpy() + noise_mat
-    # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-    K_ = (K_ + K_.transpose()) / 2.
-    K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
-
-    y_dim = np.reshape(y_data[:, dim], (n_obs,))
-    alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
-    length_scale = model.covar_module.base_kernel.lengthscale.item()
-    output_scale = model.covar_module.outputscale.item()
-
-    # convert to julia input structure
-    x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-    K_a = np.array(K_)
-    K_inv_a = np.array(K_inv)
-    alpha = np.array(alpha_vec)
-    out_2 = output_scale ** 2.
-    len_2 = length_scale ** 2.
-    theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-    K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-
-    x_L = np.array(res[4]).astype(np.float64)
-    print(x_L)
-    x_L -= 0.2
-    print(x_L)
-    x_U = np.array(res[5]).astype(np.float64)
-    x_U += 0.2
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    lower_mean = mean_info[1]
-
-    mean_info = compute_mean_bounds_jl(x_gp, K_inv_a, -alpha, out_2, len_2, x_L, x_U,
-                                       theta_vec_2, theta_vec)
-    print(f"mean bounds = {lower_mean} to {-mean_info[1]}")
-
-    mi = 500
-    sig_info = compute_sig_bounds_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, x_L, x_U, theta_vec_2, theta_vec,
-                                     K_inv_scaled, max_iterations=mi)
-    print(sig_info)
-
-    # y_gp = torch.tensor(y_dim, dtype=torch.float32)
-    # new_gp = NewGPModel(kernel_inputs, y_gp, dim_gp[1])
-    # new_gp.covar_module.outputscale = model.covar_module.outputscale
-    # new_gp.covar_module.base_kernel.lengthscale = model.covar_module.base_kernel.lengthscale
-    # new_gp.eval()
-    # sig_info_py = compute_sig_bounds_bnb(new_gp.covar_module, res[4], res[5], K_inv, theta_vec_2, kernel_inputs, 10,
-    #                                      1e-2, new_gp, dim_gp[1])
-    # print(sig_info_py)
-
-    info_dict = {"x": x_gp, "K": K_a, "K_inv": K_inv_a, "K_inv_scaled": K_inv_scaled, "alpha": alpha, "x_L": x_L,
-                 "x_U": x_U, "theta_vec_train_squared": theta_vec_2, "theta_vec": theta_vec, "sig2": out_2, "l2": len_2}
-
-    file_name = experiment_dir + "/gp_components.pkl"
-    dict_save(file_name, info_dict)
-    exit()
-
-
-class NewGPModel(gpytorch.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood):
-        super(NewGPModel, self).__init__(train_x, train_y, likelihood)
-        self.mean_module = gpytorch.means.ZeroMean()
-
-        lengthscale_prior = gpytorch.priors.GammaPrior(1.0, 2.0)
-        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(lengthscale_prior=lengthscale_prior))
-
-    def forward(self, x):
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-
-def dict_save(file_name, dict_to_save):
-    file_ = open(file_name, "wb")
-    # write the python object (dict) to pickle file
-    pickle.dump(dict_to_save, file_)
-    # close file
-    file_.close()
 
 
 def convert_to_list(region):
