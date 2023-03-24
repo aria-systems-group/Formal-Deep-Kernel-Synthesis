@@ -201,7 +201,7 @@ dependencies:
     - ltlf2dfa
     - onnx2pytorch
     - progressbar
-    - polytope
     - scikit-learn
     - gpytorch
     - juliacall
+    - shapely
