@@ -1,0 +1,20 @@
+attack:
+  pgd_order: skip
+bab:
+  branching:
+    method: fsb
+  get_upper_bound: 'true'
+  timeout: 300
+data:
+  dataset: null
+  num_outputs: 3
+general:
+  device: cpu
+model:
+  name: Customized("final_project_fnc","DynModelNetRelu2",d=3, width_1=64, width_2=64,out_dim=3)
+  path: models/unknown_dyn_model_mode_2_dim_0_experiment_sys_3d_retry.pt
+solver:
+  beta-crown:
+    iteration: 30
+specification:
+  type: bound
