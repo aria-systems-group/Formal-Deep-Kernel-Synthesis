@@ -198,3 +198,10 @@ dependencies:
     - git+https://github.com/KaidiXu/onnx2pytorch@102cf22e64ea7fae9462c1ba0feaa250ac0bc628#egg=onnx2pytorch
     - onnxruntime==1.11.0
     - protobuf==3.20.1
+    - ltlf2dfa
+    - onnx2pytorch
+    - progressbar
+    - polytope
+    - scikit-learn
+    - gpytorch
+    - juliacall
