@@ -2,7 +2,7 @@
 from import_script import *
 from gp_parallel import *
 from generic_fnc import DynModelNetRelu3, DynModelNetRelu2, DynModelNetRelu1, DynModelNetTanh1, DynModelNetTanh3
-from crown_scripts import return_idx_gp_sig_min, return_idx_gp_sig_max, setup_crown_yaml_dkl
+from crown_scripts import setup_crown_yaml_dkl
 from space_discretize_scripts import separate_data_into_regions_new, discretize_space_list
 
 
