@@ -210,6 +210,21 @@ def loss_function_theta(unknown_dyn_model, y_data, x_data):
     return loss
 
 
+def get_grid_info(X, grid_len):
+    if len(X) < 3:
+        grid_size = {k: grid_len for k in list(X)}
+        large_grid = X
+    elif len(X) == 3:
+        grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1}
+        large_grid = {"x1": 5, "x2": 1, "x3": 1}
+    elif len(X) == 5:
+        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.2, "x4": 0.2, "x5": 0.2}
+        large_grid = {"x1": 2, "x2": 2, "x3": 0.4, "x4": 0.4, "x5": 0.4}
+    else:
+        exit()
+
+    return grid_size, large_grid
+
 # ======================================================================
 #  Save and load data functions
 # ======================================================================

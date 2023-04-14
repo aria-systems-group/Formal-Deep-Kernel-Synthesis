@@ -16,7 +16,7 @@ This code is run in a miniconda environment that will install all the necessary 
 # Remove the old environment, if necessary.
 conda deactivate; conda env remove --name deep-kernel-syn
 # install all dependents into the deep-kernel-syn environment
-conda create -f alpha-beta-CROWN/complete_verifier/environment.yml --name deep-kernel-syn
+conda env create -f alpha-beta-CROWN/complete_verifier/environment.yml --name deep-kernel-syn
 # activate the environment
 conda activate deep-kernel-syn
 ```

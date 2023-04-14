@@ -154,46 +154,26 @@ class DeepKernelGP(gpytorch.models.ExactGP):
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
-class DeepKernelGP_2(gpytorch.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood):
-        super(DeepKernelGP_2, self).__init__(train_x, train_y, likelihood)
-        self.mean_module = gpytorch.means.ZeroMean()
-        self.covar_module = gpytorch.kernels.GridInterpolationKernel(
-            gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=2)),
-            num_dims=2, grid_size=100)
-        self.feature_extractor = feature_extractor
-
-        # This module will scale the NN features so that they're nice values
-        self.scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
-
-    def forward(self, x):
-        # We're first putting our data through a deep net (feature extractor)
-        projected_x = self.feature_extractor(x)
-        projected_x = self.scale_to_bounds(projected_x)  # Make the NN values "nice"
-
-        mean_x = self.mean_module(projected_x)
-        covar_x = self.covar_module(projected_x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-
 # =============================================================================================================
 # Learning functions
 # =============================================================================================================
 
 def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
-                               epochs=10000, nn_lr=1e-3):
+                               epochs=10000, nn_lr=1e-3, use_regular_gp=False):
+    # this function trains either a standard se_kernel GP (is use_regular_gp=True) or a deep kernel model
+    # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
+    # The models are trained on local data sets to reduce computational load in the future
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    alpha = 1e-3
+    alpha = 1e-2
     if process_noise is not None:
         alpha = process_noise["sig"]
 
-    hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha), }
-
-    # go ahead and train the NN with all the data, shouldn't be a problem
-    train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed, good_loss=0.1,
-                            epochs=epochs, lr=nn_lr)
+    if not use_regular_gp:
+        # train the NN with all the data
+        train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed, good_loss=0.1,
+                                epochs=epochs, lr=nn_lr)
 
     # Splitting data into desired regions for localization
     local_regions = discretize_space_list(domain, grid_size)
@@ -221,16 +201,26 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
 
-            model = DeepKernelGP(x_data, y_data, likelihood)
+            if use_regular_gp:
+                model = ExactGPModel(x_data, y_data, likelihood)
+            else:
+                model = DeepKernelGP(x_data, y_data, likelihood)
+
             if torch.cuda.is_available():
                 model = model.cuda()
                 likelihood = likelihood.cuda()
+
+            if process_noise["dist"] == "multi_norm":
+                alpha_ = max(alpha[dim], 5e-3)  # for some reason there are a lot of errors if the noise is seeded low
+            else:
+                alpha_ = alpha
+            hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
 
             model.initialize(**hypers)
             model.train()
             likelihood.train()
 
-            # NOTE, this does not optimize the NN feature extractor, just use a pre-trained version
+            # NOTE, this does not optimize the NN feature extractor, uses the pre-trained version
             optimizer = torch.optim.Adam([{'params': model.covar_module.parameters()},
                                           {'params': model.mean_module.parameters()},
                                           {'params': model.likelihood.parameters()},
@@ -276,10 +266,11 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
                     optimizer.step()
 
-            setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
-            torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
-            nn_to_save = model.feature_extractor
-            torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
+            if not use_regular_gp:
+                setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
+                torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
+                nn_to_save = model.feature_extractor
+                torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
 
             model.eval()
             likelihood.eval()
@@ -368,8 +359,6 @@ def deep_kernel_with_fixed_nn(all_data, mode, keys, use_reLU, num_layers, networ
 
 def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                       training_iter=40, lr=0.01, process_noise=None, random_seed=11):
-    use_toeplitz = False
-    use_DKL = True
 
     # define training data
     x_train = all_data[mode][0]
@@ -392,12 +381,7 @@ def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, 
 
         set_feature_extractor(use_reLU, num_layers, network_dims, random_seed + dim)
         likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        if use_toeplitz is not True:
-            model = DeepKernelGP(x_data, y_data, likelihood)
-        else:
-            model = DeepKernelGP_2(x_data, y_data, likelihood)
-        if not use_DKL:
-            model = ExactGPModel(x_data, y_data, likelihood)
+        model = DeepKernelGP(x_data, y_data, likelihood)
 
         if torch.cuda.is_available():
             model = model.cuda()
@@ -524,6 +508,13 @@ def dkl_load(file_name_base, dkl_models, all_data, use_reLU, num_layers, network
 # Posterior Predictions
 # =============================================================================================================
 
+def dict_save(file_name, dict_to_save):
+    file_ = open(file_name, "wb")
+    # write the python object (dict) to pickle file
+    pickle.dump(dict_to_save, file_)
+    # close file
+    file_.close()
+
 
 def generate_trans_par_dkl_subsections(extents, region_data,  modes, threads, file_name):
 
@@ -536,6 +527,7 @@ def generate_trans_par_dkl_subsections(extents, region_data,  modes, threads, fi
 
     max_extents = 10000
     can_test = int(max_extents/num_modes)
+    can_test = min(num_extents-1, can_test)
 
     num_left = num_extents*num_modes  # how many state/action pairs need evaluated
     while num_left > num_modes:

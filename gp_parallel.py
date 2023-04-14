@@ -13,9 +13,9 @@ from juliacall import Main as jl
 #     theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
 #     scale_cKinv = jl.seval("PosteriorBounds.scale_cK_inv")
 # except:
-jl.seval("using Pkg")
-Pkg_add = jl.seval("Pkg.add")
-Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
+# jl.seval("using Pkg")
+# Pkg_add = jl.seval("Pkg.add")
+# Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
 jl.seval("using PosteriorBounds")
 
 compute_mean_bounds_jl = jl.seval("PosteriorBounds.compute_μ_bounds_bnb_tmp")
@@ -89,11 +89,8 @@ def erf_transitions(num_extents, num_dims, mean_info, sig_info, post_idx, post_r
     for dim in range(num_dims):
         lower_mean = mean_info[dim][0]
         upper_mean = mean_info[dim][1]
-        if abs(upper_mean - lower_mean) > .35:
-            large_mean = True
 
         upper_sigma = sig_info[dim][1]  # this is a std deviation
-
         lower_sigma = sig_info[dim][0]
         if lower_sigma is None:
             lower_sigma = upper_sigma * .7
@@ -250,8 +247,6 @@ def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, cr
     sig_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
 
     # first get crown posts for each dim
-    # dkl_by_dim is a list [[model, likelihood] for each dim]
-
     linear_transform_info = run_dkl_in_parallel(extents, mode, range(num_dims), nn_out_dim, crown_dir, experiment_dir,
                                                 linear_transform_info, threads=threads)
     print('Finished bounding the NN portion')
@@ -287,7 +282,7 @@ def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, cr
         K_a = np.array(K_)
         K_inv_a = np.array(K_inv)
         alpha = np.array(alpha_vec)
-        out_2 = output_scale**2.
+        out_2 = output_scale
         len_2 = length_scale**2.
         theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
         K_inv_scaled = scale_cKinv(K_a, out_2, noise)
@@ -311,7 +306,8 @@ def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, cr
 def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim, crown_dir, experiment_dir, threads=8):
     # returns a list organized as [mean bounds, sig bounds, NN linear transform]
     # mean bounds is a list of tuples of tuples [((dim_upper, dim_lower) for each dim) for each region], same for sig
-    # NN linear transform is a list of tuples of tuples [((lA, uA, l_bias, u_bias, bounds_min, bounds_max) for each dim) for each region]
+    # NN linear transform is a list of tuples of tuples [((lA, uA, l_bias, u_bias, bounds_min, bounds_max) for each dim)
+    # for each region]
 
     num_regions = len(extents) - 1
     num_sub_regions = len(region_info)
@@ -321,9 +317,8 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
     mean_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
     sig_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
 
-    # first get crown posts for each dim
-    # dkl_by_dim is a list [[model, likelihood] for each dim]
-
+    # first get crown posts for each dim, this uses a fixed neural network for each dimension, so it is
+    # sufficent to get the bounds once
     linear_transform_info = run_dkl_in_parallel(extents, mode, range(num_dims), nn_out_dim, crown_dir, experiment_dir,
                                                 linear_transform_info, threads=threads)
 
@@ -338,7 +333,6 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
         specific_extents = extents_in_region(extents, region)
 
         for dim in range(num_dims):
-
             # setup some intermediate values
             # pass x_train through the NN portion to get the kernel inputs
             dim_gp = dkl_by_dim[sub_idx][dim]
@@ -354,10 +348,10 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
             covar_module = model.covar_module
             kernel_mat = covar_module(kernel_inputs)
             kernel_mat = kernel_mat.evaluate()
-            K_ = kernel_mat.detach().numpy() + noise_mat
-            # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-            K_ = (K_ + K_.transpose()) / 2.
-            K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
+            K = kernel_mat.detach().numpy() + noise_mat
+            # enforce symmetry, it is very close but causes errors when computing sig bounds
+            K = (K + K.transpose()) / 2.
+            K_inv = np.linalg.inv(K)  # only need to do this once per dim, yay
 
             y_dim = np.reshape(y_data[:, dim], (n_obs,))
             alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
@@ -366,40 +360,37 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
 
             # convert to julia input structure
             x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-            K_a = np.array(K_)
-            K_inv_a = np.array(K_inv)
+            K_ = np.array(K)
+            K_inv_ = np.array(K_inv)
             alpha = np.array(alpha_vec)
             out_2 = output_scale
             len_2 = length_scale**2.
             theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-            K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-            # K_inv_scaled = K_inv * out_2
+            # K_inv_scaled = scale_cKinv(K_, out_2, noise)
+            K_inv_scaled = out_2*K_inv_
 
             # Get bounds on the mean function
             # TODO, figure out why the julia call doesn't work in pool, still pretty fast without it though
-            mean_bound, x_L, x_U = bound_local_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
+            mean_bound, x_L, x_U = bound_local_gp_from_nn_jl(x_gp, K_inv_, alpha, out_2, len_2, linear_transform_info,
                                                              theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
                                                              max_flag=False)
-            mean_bound = bound_local_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
+            mean_bound = bound_local_gp_from_nn_jl(x_gp, K_inv_, alpha, out_2, len_2, linear_transform_info,
                                                    theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
                                                    max_flag=True)
 
             # get bounds on variance
-            worst_case_sig = compute_sig_bounds_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, x_L, x_U, theta_vec_2,
+            worst_case_sig = compute_sig_bounds_jl(x_gp, K_, K_inv_, alpha, out_2, len_2, x_L, x_U, theta_vec_2,
                                                    theta_vec, K_inv_scaled, max_iterations=500, bound_epsilon=1e-4)
             worst_sig = np.sqrt(worst_case_sig[2])
-            if (worst_case_sig[2] - worst_case_sig[1]) > 1e-3:
-                worst_sig = np.min(0.3, worst_sig)
             print(f"Worst case sigma for sub-region {sub_idx+1} and dim {dim} is {worst_sig}")
 
-            sig_bound = bound_local_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
+            sig_bound = bound_local_sig_from_nn_jl(x_gp, K_, K_inv_, alpha, out_2, len_2, linear_transform_info,
                                                    theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound,
                                                    specific_extents, worst_case=worst_sig)
 
             # sig_bound = bound_local_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
             #                                        theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound,
             #                                        specific_extents, min_flag=True)
-            # print('Bounded min sig')
 
         print(f'Finished sub-region {sub_idx+1} of {num_sub_regions}')
 
@@ -408,12 +399,12 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
 
 def run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir, linear_transform_info, 
                         threads=8):
-
-    # set up region_eps
+    # this calls the Crown scripts in parallel
     extent_len = len(extents) - 1
 
     os.chdir(crown_dir)
 
+    # if dim is a range then there is a fixed NN for every dimension, else there is a different NN for every dimension
     if type(dim) is range:
         dim_ = 0
     else:
@@ -424,6 +415,7 @@ def run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_di
                            idx) for idx in range(extent_len)])
     pool.close()
 
+    # store the results
     os.chdir(experiment_dir)
     if type(dim) is range:
         for dims in dim:
@@ -434,6 +426,37 @@ def run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_di
             linear_transform_info[index][dim] = lin_trans
 
     return linear_transform_info
+
+
+def run_dkl_in_parallel_just_bounds(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir, linear_transform_info,
+                                    threads=8, use_regular_gp=False):
+    extent_len = len(extents) - 1
+    if not use_regular_gp:
+        # this calls the Crown scripts in parallel
+        os.chdir(crown_dir)
+
+        dim_ = 0
+        pool = mp.Pool(threads)
+        results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, nn_out_dim, mode, dim_,
+                               idx) for idx in range(extent_len)])
+        pool.close()
+
+        # store the results
+        os.chdir(experiment_dir)
+        for dims in dim:
+            for index, lin_trans in enumerate(results):
+                saved_vals = [np.array(lin_trans[4]).astype(np.float64), np.array(lin_trans[5]).astype(np.float64)]
+                linear_transform_info[index][dims] = saved_vals
+
+    else:
+        for dims in dim:
+            for index, region in enumerate(extents):
+                x_min = [region[k][0] for k in list(region)]
+                x_max = [region[k][1] for k in list(region)]
+                saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
+                linear_transform_info[index][dims] = saved_vals
+
+    return np.array(linear_transform_info)
 
 ############################################################################################
 #  Julia Call portions
@@ -454,8 +477,6 @@ def bound_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, linear_t
                                                np.array(linear_transform[idx][dim][5]).astype(np.float64),
                                                theta_vec_2, theta_vec)
             mean_bound[idx][dim][0] = mean_info[1]
-            if abs(mean_info[1] - mean_info[2]) > 0.1:
-                print(f'Upper mean info is {mean_info} at region {idx} and dim {dim}')
 
     else:
         # upper bound on mean
@@ -465,8 +486,6 @@ def bound_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, linear_t
                                                np.array(linear_transform[idx][dim][5]).astype(np.float64),
                                                theta_vec_2, theta_vec)
             mean_bound[idx][dim][1] = -mean_info[1]
-            if abs(mean_info[1] - mean_info[2]) > 0.1:
-                print(f'Lower mean info is {mean_info} at region {idx} and dim {dim}')
 
     return mean_bound
 
@@ -489,10 +508,6 @@ def bound_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, lin
         sig_ = sig_info[2]  # this is a std deviation
         if min_flag:
             sig_ = sig_info[1]
-
-        if sig_ > .4 and not min_flag:
-            print(f"Region {idx} has a sigma info {sig_info} in dim {dim}")
-            sig_ = min(max(sig_info[1], 0.4), sig_info[2])
 
         if min_flag:
             sig_bound[idx][dim][0] = sig_
@@ -543,7 +558,7 @@ def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scal
                                theta_vec, K_inv_scaled, dim, sig_bound, specific_extents, min_flag=False, worst_case=0.3):
 
     # upper bound on sigma
-    mi = 500
+    mi = 20  # 500
     if min_flag:
         mi = 5
 
@@ -553,10 +568,10 @@ def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scal
 
         sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, x_L, x_U, theta_vec_2,
                                          theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag,
-                                         bound_epsilon=1e-4)
+                                         bound_epsilon=1e-3)
         sig_ = np.sqrt(sig_info[2])  # this is a std deviation
         if sig_ > worst_case:
-            print(f"Region {idx} has sig bounds {np.sqrt([sig_info[1], sig_info[2]])} in dim {dim}")
+            # this means it didn't converge properly, set to worst case
             sig_ = worst_case
 
         if min_flag:
@@ -569,6 +584,25 @@ def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scal
 ############################################################################################
 #  Support functions
 ############################################################################################
+
+
+def se_(sig2, l2, x1, x2):
+    dx = x1 - x2
+    return sig2 * np.exp(-0.5 * np.dot(dx, dx) / l2)
+
+
+def create_kernel_mat(sig2, l2, noise, X, n_obs):
+
+    # return a square mat k(X,X)
+    K_mat = noise * np.identity(n_obs)
+
+    for x1_idx in range(n_obs):
+        x1 = X[:, x1_idx]
+        for x2_idx in range(n_obs):
+            x2 = X[:, x2_idx]
+            K_mat[x1_idx, x2_idx] += se_(sig2, l2, x1, x2)
+
+    return K_mat
 
 
 def extents_in_region(extents, region):

@@ -84,6 +84,7 @@ elif experiment_number == 2:
     goal_set.extend(goal_c)
 elif experiment_number == 3:
     global_dir_name = "sys_3d"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     use_local_gp = True
@@ -99,7 +100,7 @@ elif experiment_number == 3:
 
     region_labels = {"a": goal_set, "b": unsafe_set}
 elif experiment_number == 3.5:
-    global_dir_name = "sys_3d_too_coarse"
+    global_dir_name = "sys_3d_full_len"
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     use_local_gp = True
@@ -148,8 +149,6 @@ if len(X) < 3:
     large_grid = X
 elif len(X) == 3:
     grid_size = {"x1": 0.1, "x2": 0.1, "x3": 0.05}
-    if global_dir_name == "sys_3d_too_coarse":
-        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.1}
     if global_dir_name == "sys_3d_less_fine":
         grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.1}
     if global_dir_name == "sys_3d":
@@ -204,9 +203,6 @@ else:
     del x_train, y_train
     dict_save(file_name, all_data)
 
-run_tests = False
-get_probs = True
-
 keys = list(X)
 if reuse_regions and os.path.exists(global_exp_dir + "/transition_probs.pkl"):
     print('Skipping training')
@@ -246,14 +242,6 @@ else:
     toc = time.perf_counter()
     print(f"It took {toc - tic} seconds to train all the Deep Kernel GP models.")
 
-    # if len(X) == 1:
-    #     deep_kernel_plot(unknown_dyn_gp[0], all_data, unknown_modes_list, 0, X, global_exp_dir)
-    # else:
-    #     if use_local_gp:
-    #         gp_plot = unknown_dyn_gp[0][1]
-    #         plot_domain = region_info[0][1][2]
-    #         deep_kernel_plot_nD(gp_plot, region_info[0][1], 0, 0, plot_domain, global_exp_dir)
-    #         # exit()
 
 # =====================================================================================
 # 3. Get posteriors of GP
@@ -269,10 +257,7 @@ if (region_data is None) or any(region_data[mode][0] is None for mode in modes):
     print("Calculating post-regions...")
 
     if region_data is None:
-        # a list where each input has the data for a different mode
         # data for each mode organized as [mean bounds, sig bounds, NN linear transform]
-        # mean bounds is a tuple of tuples ((dim_upper, dim_lower) for each dim), same for sig
-        # NN linear transform is a tuple of tuples ((lA, uA, l_bias, u_bias, bounds) for each dim)
         region_data = [[None, None, None] for mode in modes]
 
     tic = time.perf_counter()
@@ -302,8 +287,6 @@ if (region_data is None) or any(region_data[mode][0] is None for mode in modes):
     toc = time.perf_counter()
     print(f"Region generation took {toc - tic:0.4f} seconds.")
     dict_save(file_name, region_data)
-
-if not run_tests:
     del unknown_dyn_gp  # no longer need to carry around all the gps
 # =====================================================================================
 # 3. Construct transition bounds from posteriors
@@ -311,31 +294,27 @@ if not run_tests:
 
 file_name = global_exp_dir + "/transition_probs.pkl"
 extents = discretize_space_list(X, grid_size)
-# reuse_regions = False
 if reuse_regions and os.path.exists(file_name):
     print("Loading previous transitions data...")
     probs = dict_load(file_name)
     min_probs = probs["min"]
     max_probs = probs["max"]
-    del probs
 else:
     print('Calculating transition probabilities...')
     tic = time.perf_counter()
     threads = 12
-    if num_extents*len(modes) > 10000:
-        # need to do this in sections to save space
-        file_name_partial = global_exp_dir + "/transition_probs_partial.pkl"
-        min_probs, max_probs = generate_trans_par_dkl_subsections(extents, region_data, modes, threads,
-                                                                  file_name_partial)
-    else:
-        min_probs, max_probs = generate_trans_par_dkl(extents, region_data, modes, threads)
+
+    # do this in sections to save space just in case
+    file_name_partial = global_exp_dir + "/transition_probs_partial.pkl"
+    min_probs, max_probs = generate_trans_par_dkl_subsections(extents, region_data, modes, threads,
+                                                              file_name_partial)
 
     toc = time.perf_counter()
     print(f"It took {toc - tic} seconds to get the transition probabilities")
     probs = {"min": min_probs, "max": max_probs}
     dict_save(file_name, probs)
-    del probs
 
+del probs
 # =====================================================================================
 # 4. Run synthesis/verification
 # =====================================================================================

@@ -669,7 +669,9 @@ def generate_training_data(unknown_fnc, domain, data_num, known_fnc=None, random
         if dist is "uniform":
             noise = np.random.uniform(-sig, sig, size=(n_dims_out, data_num))
         elif dist is "normal":
-            noise = np.random.uniform(0., sig, size=(n_dims_out, data_num))
+            noise = np.random.normal(0., sig, size=(n_dims_out, data_num))
+        elif dist is "multi_norm":
+            noise = np.random.multivariate_normal(process_dist["mu"], np.diag(sig), data_num).transpose()
         else:
             error_print("Not an implemented noise distribution. Please check process distribution inputs.")
         y_train += noise
