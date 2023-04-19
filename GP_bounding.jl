@@ -7,6 +7,7 @@ addprocs(parse(Int, args[1]))
 using PyCall
 using SharedArrays
 @everywhere include("quad_prog_bnb.jl")
+
 @pyimport numpy
 
 EXPERIMENT_DIR = @__DIR__
@@ -17,7 +18,11 @@ experiment_number = parse(Int, args[2])
 
 if experiment_number == 3
     global_dir_name = "sys_3d"
-elseif experiment_number == 3.5
+elseif experiment_number == 2
+    global_dir_name = "sys_2d"
+elseif experiment_number == 1
+    global_dir_name = "sys_3d_"
+elseif experiment_number == 4
     global_dir_name = "sys_3d_gp"
 end
 
@@ -34,12 +39,16 @@ num_regions = general_data[4]
 # 3. Use NN posteriors as input spaces for the GP and get bounds on that
 # =====================================================================================
 
-# once the new method is in place, test mode 1, sub_region 1, dim 1, index 233+1
-
-mean_bound = SharedArray{Float64}(num_modes, num_regions, num_dims, 2)
-sig_bound = SharedArray{Float64}(num_modes, num_regions, num_dims, 2)
+mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
+sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
 for mode in 1:num_modes
+    if isfile(global_exp_dir*"/sig_data_$mode.npy")
+        @info "moving to next mode"
+        continue
+    end
+
     linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$mode.npy")
+    convert(SharedArray, linear_bounds)
 
     mode_runtime = @elapsed begin
         for sub_idx in 1:(num_sub_regions::Int)
@@ -62,34 +71,46 @@ for mode in 1:num_modes
                 noise = K[1,1] - out2
                 cK_inv_scaled = PosteriorBounds.scale_cK_inv(K, out2, noise)
 
+                m = size(x_gp, 2) # n_obs
+                n = size(x_gp, 1) # dims
+                gp_neg = PosteriorBounds.PosteriorGP(n, m, x_gp, K, Matrix{Float64}(undef, m, m),
+                        PosteriorBounds.UpperTriangular(zeros(m,m)), K_inv, -alpha,
+                        PosteriorBounds.SEKernel(out2, l2))
+                gp = PosteriorBounds.PosteriorGP(n, m, x_gp, K, Matrix{Float64}(undef, m, m),
+                        PosteriorBounds.UpperTriangular(zeros(m,m)), K_inv, alpha,
+                        PosteriorBounds.SEKernel(out2, l2))
+                PosteriorBounds.compute_factors!(gp)
+
                 # parallelize getting mean bounds and variance bounds
-                @sync @distributed for idx in specific_extents
+                 @sync @distributed for idx in specific_extents
                     x_L = linear_bounds[idx+1, dim, 1, :]
                     x_U = linear_bounds[idx+1, dim, 2, :]
 
                     # get lower mean bounds
-                    mean_info_l = PosteriorBounds.compute_μ_bounds_bnb_tmp(x_gp, K_inv, alpha, out2, l2,
-                                                                           x_L, x_U, theta_vec_2, theta_vec)
+                    mean_info_l = PosteriorBounds.compute_μ_bounds_bnb(gp, x_L, x_U, theta_vec_2,
+                                                                       theta_vec; max_iterations=100,
+                                                                       bound_epsilon=1e-2, max_flag=false,
+                                                                       prealloc=nothing)
 
-                    # get upper mean bounds, negating alpha is the same as
-                    mean_info_u = PosteriorBounds.compute_μ_bounds_bnb_tmp(x_gp, K_inv, -alpha, out2, l2,
-                                                                           x_L, x_U, theta_vec_2, theta_vec)
+                    # get upper mean bounds, negating alpha allows for the "min" to be the -max
+                    mean_info_u = PosteriorBounds.compute_μ_bounds_bnb(gp_neg, x_L, x_U, theta_vec_2,
+                                                                       theta_vec; max_iterations=100,
+                                                                       bound_epsilon=1e-2, max_flag=false,
+                                                                       prealloc=nothing)
 
-                    mean_bound[mode, idx+1, dim, 1] = mean_info_l[2]
-                    mean_bound[mode, idx+1, dim, 2] = -mean_info_u[2]
+                    mean_bound[idx+1, dim, 1] = mean_info_l[2]
+                    mean_bound[idx+1, dim, 2] = -mean_info_u[2]
 
                     # get upper bounds on variance
-                    sig_info = PosteriorBounds.compute_σ_bounds_bnb_tmp(x_gp, K, K_inv, alpha, out2, l2, x_L, x_U,
-                                                                        theta_vec_2, theta_vec, cK_inv_scaled;
-                                                                        max_iterations=20, bound_epsilon=1e-3)
+                    sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+                                                                cK_inv_scaled; max_iterations=20,
+                                                                bound_epsilon=1e-3, min_flag=false,
+                                                                prealloc=nothing)
 
                     sig_ = sqrt(sig_info[3])  # this is a std deviation
                     sig_low = sqrt(sig_info[2])
                     if abs(sig_-sig_low) > sqrt(1e-3)
-                        @info "Fast method didn't converge, using the quadratic program (mode $mode, sub_region $sub_idx, dim $dim, index $idx)"
                         # this means it didn't converge properly, use expensive quadratic program to find solution
-                        m = size(x_gp, 2) # n_obs
-                        n = size(x_gp, 1) # dims
                         gp = PosteriorBounds.PosteriorGP(
                                 n, m, x_gp, K, Matrix{Float64}(undef, m, m),
                                 PosteriorBounds.UpperTriangular(zeros(m, m)),
@@ -102,16 +123,17 @@ for mode in 1:num_modes
                         sig_ = outputs[3]
                     end
 
-                    sig_bound[mode, idx+1, dim, 2] = sig_
-                    sig_bound[mode, idx+1, dim, 1] = 0.7*sig_
+                    sig_bound[idx+1, dim, 2] = sig_
+                    sig_bound[idx+1, dim, 1] = sig_  #TODO, get min std dev
 
                 end
             end
         end
     end
     @info "Finished getting bounds for mode $mode in $mode_runtime seconds"
+    # save data
+    numpy.save(global_exp_dir*"/mean_data_$mode", mean_bound)
+    numpy.save(global_exp_dir*"/sig_data_$mode", sig_bound)
 end
 
-# save all the data for use in IMDP generation next
-numpy.save(global_exp_dir*"/mean_data", mean_bound)
-numpy.save(global_exp_dir*"/sig_data", sig_bound)
+@info "Finished bounding the GPs"

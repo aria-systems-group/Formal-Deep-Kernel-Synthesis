@@ -1,9 +1,20 @@
+# This script generates dynamics data, regresses a deep kernel and gets bounds on the NN portion of the kernel
+# it is run by calling python3 setup_nn_bounds.py [THREADS] [EXPERIMENT]
+# where [THREADS] is how many parallel threads will be used during bounding and EXPERIMENT is which experiment to run,
+# defined by numbers
+
 from generic_fnc import *
 from dynamics_script import *
 from gp_scripts import *
-from space_discretize_scripts import *
+from space_discretize_scripts import discretize_space
 from gp_parallel import *
-from dfa_scripts import *
+
+from juliacall import Main as jl
+# jl.seval("using Pkg")
+# Pkg_add = jl.seval("Pkg.add")
+# Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
+jl.seval("using PosteriorBounds")
+theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
 
 EXPERIMENT_DIR = os.path.dirname(os.path.abspath(__file__))
 experiment_type = "/deep_kernel_synthesis"
@@ -34,26 +45,22 @@ experiment_number = int(sys.argv[2])
 # ======================================================================
 
 if experiment_number == 2:
-    # 2D experiment, 4 modes
+    # 2D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
     GP_data_points = 200
-    specification = "G(!b) & F(a) & F(c)"
-    unsafe_set = [[[-1.75, -1.25], [-0.75, 1.0]],
-                  [[-1.0, -0.5], [-1.25, -0.875]],
-                  [[0.5, 1.125], [-1.75, -1.25]],
-                  [[0.75, 1.0], [-0.5, 0.5]],
-                  [[0.75, 1.75], [0.75, 1.75]]]
-    goal_a = [[[-0.75, 0.75], [-0.75, 0.75]]]
-    goal_c = [{"x1": [-1.75, 0.0], "x2": [-2.0, -1.5]},
-              {"x1": [1.125, 2.0], "x2": [-1.75, 0.0]},
-              {"x1": [-1.25, 0.0], "x2": [1.0, 1.875]}]
-    region_labels = {"b": unsafe_set, "a": goal_a}  # , "c": goal_c}
-    goal_set = []
-    goal_set.extend(goal_a)
-    goal_set.extend(goal_c)
+elif experiment_number == 1:
+    # 3D experiment, 5 modes, 1000 data points per mode
+    global_dir_name = "sys_3d_"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
+    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    GP_data_points = 1000
+    nn_epochs = 4000
+    epochs = 400
 elif experiment_number == 3:
+    # 3D experiment, 5 modes, 2000 data points per mode
     global_dir_name = "sys_3d"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
@@ -61,16 +68,8 @@ elif experiment_number == 3:
     GP_data_points = 2000
     nn_epochs = 4000
     epochs = 400
-    specification = "!b U a"
-    # unsafe_set = [[[4., 6.], [0., 1.], [-0.5, 0.5]]]  # a list of lists, each inner list being a set of bounds for the label
-    # goal_set = [[[8., 10.], [0., 1.], [-0.5, 0.5]]]
-
-    # a list of lists, each inner list being a set of bounds for the label
-    unsafe_set = [[[0., 1], [0., 1.], [-0.5, 0.5]]]
-    goal_set = [[[3., 5.], [0., 1.], [-0.5, 0.5]]]
-
-    region_labels = {"a": goal_set, "b": unsafe_set}
-elif experiment_number == 3.5:
+elif experiment_number == 4:
+    # 3D experiment, 5 modes, 2000 data points per mode, uses a standard GP rather than a deep kernel
     use_regular_gp = True
     global_dir_name = "sys_3d_gp"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
@@ -78,14 +77,8 @@ elif experiment_number == 3.5:
     X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     GP_data_points = 2000
     epochs = 400
-    specification = "!b U a"
-
-    # a list of lists, each inner list being a set of bounds for the label
-    unsafe_set = [[[0., 1], [0., 1.], [-0.5, 0.5]]]
-    goal_set = [[[3., 5.], [0., 1.], [-0.5, 0.5]]]
-
-    region_labels = {"a": goal_set, "b": unsafe_set}
 elif experiment_number == 5:
+    # 5D experiement, 4 modes, 15000 data points per mode
     global_dir_name = "sys_5d"
     unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2, g_5d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.4, 0.4], "x4": [-0.4, 0.4], "x5": [-0.4, 0.4]}
@@ -122,8 +115,9 @@ out_dim = d
 network_dims = [d, width_1, width_2, out_dim]
 
 extents, boundaries = discretize_space(X, grid_size)
-states = [i for i in range(len(extents) - 1)]
-num_extents = len(extents) - 1
+extents.pop()
+states = [i for i in range(len(extents))]
+num_extents = len(extents)
 print(f"Number of extents = {num_extents}")
 
 # =====================================================================================
@@ -190,10 +184,9 @@ print(f"It took {toc - tic} seconds to train all the Deep Kernel GP models.")
 # =====================================================================================
 
 num_modes = len(modes)
-num_dims = len(unknown_dyn_gp[0][0])
-num_regions = len(extents) - 1
+num_dims = len(X)
+num_regions = len(extents)
 num_sub_regions = len(region_info[0])
-
 
 nn_bounds_dir = global_exp_dir + "/nn_bounds"
 if not os.path.isdir(nn_bounds_dir):
@@ -203,16 +196,22 @@ filename = global_exp_dir + "/general_info"
 np.save(filename, np.array([num_modes, num_dims, num_sub_regions, num_regions]))
 
 tic = time.perf_counter()
+linear_bounds = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
 for mode in modes:
     region_inf = region_info[mode]
 
     filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}"
-    linear_bounds = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
-    linear_bounds = run_dkl_in_parallel_just_bounds(extents, mode, range(num_dims), out_dim, crown_dir, EXPERIMENT_DIR,
-                                                    linear_bounds, threads=threads, use_regular_gp=use_regular_gp)
-    print(f"Finished bounding the NN for mode {mode+1}")
-    np.save(filename, linear_bounds)
 
+    if not use_regular_gp:
+        linear_bounds = run_dkl_in_parallel_just_bounds(extents, mode, range(num_dims), out_dim, crown_dir, EXPERIMENT_DIR,
+                                                        linear_bounds, threads=threads, use_regular_gp=use_regular_gp)
+        print(f"Finished bounding the NN for mode {mode+1}")
+    else:
+        if mode == 0:
+            linear_bounds = run_dkl_in_parallel_just_bounds(extents, mode, range(num_dims), out_dim, crown_dir,
+                                                            EXPERIMENT_DIR, linear_bounds, threads=threads,
+                                                            use_regular_gp=use_regular_gp)
+    np.save(filename, linear_bounds)
     for sub_idx in range(num_sub_regions):
         region = region_inf[sub_idx][2]
         x_data = torch.tensor(np.transpose(region_inf[sub_idx][0]), dtype=torch.float32)
@@ -227,10 +226,12 @@ for mode in modes:
 
             model = unknown_dyn_gp[mode][sub_idx][dim][0]
             model.cpu()  # unfortunately needs to be on cpu to access values
-            nn_portion = model.feature_extractor
-            with torch.no_grad():
-                kernel_inputs = nn_portion.forward(x_data)
-
+            if not use_regular_gp:
+                nn_portion = model.feature_extractor
+                with torch.no_grad():
+                    kernel_inputs = nn_portion.forward(x_data)
+            else:
+                kernel_inputs = x_data
             noise = model.likelihood.noise.item()
             noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
 
@@ -243,7 +244,7 @@ for mode in modes:
             K_inv = np.linalg.inv(K)  # only need to do this once per dim, yay
 
             y_dim = np.reshape(y_data[:, dim], (n_obs,))
-            alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
+            alpha_vec = K_inv @ y_dim
             length_scale = model.covar_module.base_kernel.lengthscale.item()
             output_scale = model.covar_module.outputscale.item()
 
@@ -269,4 +270,7 @@ for mode in modes:
             np.save(dim_region_filename+"_these_indices", np.array(specific_extents))
 
 toc = time.perf_counter()
-print(f"Finished bounding NN portion for all modes in {toc-tic} seconds, moving to Julia \n")
+if not use_regular_gp:
+    print(f"Finished bounding NN portion for all modes in {toc-tic} seconds, moving to Julia \n")
+else:
+    print(f"Finished storing needed data, moving to Julia \n")

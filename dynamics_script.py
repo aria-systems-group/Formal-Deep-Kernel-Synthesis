@@ -120,7 +120,7 @@ def g_2d_mode3(x):
 
 
 dubins_ts = 0.1
-print(f'Dubins Ts = {dubins_ts}')
+# print(f'Dubins Ts = {dubins_ts}')
 def g_3d_mode1(xs, Ts=dubins_ts):
     u = 10
     omega = 5
@@ -639,11 +639,8 @@ def known_part(x):
 
 def generate_training_data(unknown_fnc, domain, data_num, known_fnc=None, random_seed=11, n_dims_out=-1,
                            process_dist=None, measurement_dist=None):
-    # if known_fnc is None:
+    # This function generates i.i.d. data points across the domain and adds random noise from a specified distribution
     f_sub = unknown_fnc
-    # else:
-    #     def f_sub(x):
-    #         return np.add(known_fnc(x), unknown_fnc(x))
 
     n_dims_in = len(domain)
     if n_dims_out > 0:
@@ -676,6 +673,8 @@ def generate_training_data(unknown_fnc, domain, data_num, known_fnc=None, random
             error_print("Not an implemented noise distribution. Please check process distribution inputs.")
         y_train += noise
 
+
+    # TODO, make measurement noise work properly and allow for known parts of the function
     if measurement_dist is not None:
         sig = measurement_dist["sig"]
         noise = np.random.uniform(-sig, sig, size=(n_dims_out, data_num))
@@ -685,12 +684,6 @@ def generate_training_data(unknown_fnc, domain, data_num, known_fnc=None, random
         y_train -= np.transpose(
             np.reshape([known_fnc([x_train[idx_i][idx_j] for idx_i in range(n_dims_in)]) for idx_j in range(data_num)],
                        [data_num, n_dims_out]))
-
-    # make sure x measurements are also corrupted by the noise
-    # if measurement_dist is not None:
-    #     sig = measurement_dist["sig"]
-    #     noise = np.random.uniform(-sig, sig, size=(n_dims_out, data_num))
-    #     x_train += noise
 
     assert np.size(x_train) == np.size(y_train)
 

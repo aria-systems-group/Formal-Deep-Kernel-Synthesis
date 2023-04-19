@@ -179,32 +179,6 @@ function convex_bounds(x_l, x_u, x_t, v_t)
 end
 
 
-function quadprog_old(Q;
-                  A   =  zeros(Float64, (0, 0)),
-                  b   =  zeros(Float64, 0),
-                  lb  = -Inf*ones(size(Q,1)),
-                  ub  =  Inf*ones(size(Q,1)))
-
-    # DESCRIPTION:
-    # min  x' * Q * x
-    # s.t. A   * x <= b
-    #      lb <= x <= ub
-
-    model = Model(Ipopt.Optimizer)
-    set_silent(model)
-
-    @variable(model, x[i=1:size(Q,1)])
-    @objective(model, Min, x'*Q*x)
-    @constraint(model, A*x <= b)
-    @constraint(model, lb .<= x .<= ub)
-
-    optimize!(model)
-    x_opt = JuMP.value.(x)
-
-    return x_opt, objective_value(model), termination_status(model)
-end
-
-
 function quadprog(model, x;
                        A   =  zeros(Float64, (0, 0)),
                        b   =  zeros(Float64, 0),

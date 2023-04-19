@@ -1,5 +1,4 @@
 
-from import_script import *
 from gp_parallel import *
 from generic_fnc import DynModelNetRelu3, DynModelNetRelu2, DynModelNetRelu1, DynModelNetTanh1, DynModelNetTanh3
 from crown_scripts import setup_crown_yaml_dkl
@@ -121,6 +120,17 @@ class IMDPModel:
         self.extents = extents
 
 
+class PIMDPModel:
+    def __init__(self, states, actions, pmin, pmax, labels, accepting_labels, sink_labels):
+        self.states = states
+        self.actions = actions
+        self.Pmin = pmin
+        self.Pmax = pmax
+        self.labels = labels
+        self.accepting_labels = accepting_labels
+        self.sink_labels = sink_labels
+
+
 class ExactGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
         super(ExactGPModel, self).__init__(train_x, train_y, likelihood)
@@ -161,7 +171,7 @@ class DeepKernelGP(gpytorch.models.ExactGP):
 def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
                                epochs=10000, nn_lr=1e-3, use_regular_gp=False):
-    # this function trains either a standard se_kernel GP (is use_regular_gp=True) or a deep kernel model
+    # this function trains either a standard se_kernel GP (if use_regular_gp=True) or a deep kernel model
     # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
     # The models are trained on local data sets to reduce computational load in the future
 
@@ -390,17 +400,11 @@ def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, 
         model.initialize(**hypers)
         model.train()
         likelihood.train()
-        if use_DKL:
-            optimizer = torch.optim.Adam([{'params': model.feature_extractor.parameters()},
-                                          {'params': model.covar_module.parameters()},
-                                          {'params': model.mean_module.parameters()},
-                                          {'params': model.likelihood.parameters()},
-                                          ], lr=lr)
-        else:
-            optimizer = torch.optim.Adam([{'params': model.covar_module.parameters()},
-                                          {'params': model.mean_module.parameters()},
-                                          {'params': model.likelihood.parameters()},
-                                          ], lr=lr)
+        optimizer = torch.optim.Adam([{'params': model.feature_extractor.parameters()},
+                                      {'params': model.covar_module.parameters()},
+                                      {'params': model.mean_module.parameters()},
+                                      {'params': model.likelihood.parameters()},
+                                      ], lr=lr)
 
         mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
         for i in range(training_iter):
@@ -413,15 +417,10 @@ def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, 
             loss = -mll(output, y_data)
 
             loss.backward()
-            if use_toeplitz is not True:
-                if i % 100 == 99:
-                    print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
-                          (i + 1, training_iter, loss.item(),
-                           model.covar_module.base_kernel.lengthscale.item()))
-            else:
-                if i % 10 == 9:
-                    print('Iter %d/%d - Loss: %.3f' %
-                          (i + 1, training_iter, loss.item()))
+            if i % 100 == 99:
+                print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
+                      (i + 1, training_iter, loss.item(),
+                       model.covar_module.base_kernel.lengthscale.item()))
 
             optimizer.step()
 
@@ -516,14 +515,16 @@ def dict_save(file_name, dict_to_save):
     file_.close()
 
 
-def generate_trans_par_dkl_subsections(extents, region_data,  modes, threads, file_name):
-
+def generate_trans_par_dkl(extents, region_data,  modes, threads, file_name, process_dist):
+    # This function generates the transition probability matrix, it periodically saves the results
     num_extents = len(extents)
     num_modes = len(modes)
     num_dims = len(region_data[0][0][0])
 
     min_prob = None
     max_prob = None
+
+    sigs = process_dist["sig"]
 
     max_extents = 10000
     can_test = int(max_extents/num_modes)
@@ -535,7 +536,7 @@ def generate_trans_par_dkl_subsections(extents, region_data,  modes, threads, fi
         insert_idx = 0
         for pre_idx in range(can_test):
             for mode in modes:
-                min_, max_ = parallel_erf(extents, region_data[mode], num_dims, pre_idx, mode, threads=threads)
+                min_, max_ = parallel_erf(extents, region_data[mode], num_dims, pre_idx, mode, sigs, threads=threads)
                 if pre_idx == 0 and mode == 0:
                     min_prob_csr = csr_matrix(min_)
                     max_prob_csr = csr_matrix(max_)
@@ -569,76 +570,43 @@ def generate_trans_par_dkl_subsections(extents, region_data,  modes, threads, fi
 
     return min_prob, max_prob
 
-
-def generate_trans_par_dkl(extents, region_data,  modes, threads):
-
-    num_extents = len(extents)
-    num_dims = len(region_data[0][0][0])
-
-    bar = progressbar.ProgressBar(maxval=num_extents * len(modes)).start()
-    # alive_ = alive_bar(num_extents * len(modes), bar='bubbles')
-
-    insert_idx = 0
-    for pre_idx in range(num_extents - 1):
-        for mode in modes:
-            bar.update(insert_idx)
-            # alive_()
-            min_, max_ = parallel_erf(extents, region_data[mode], num_dims, pre_idx, mode, threads=threads)
-            if np.sum(max_) < 1 or np.sum(min_) > 1:
-                print(f'Something is wrong at index {insert_idx}')
-                exit()
-
-            if pre_idx == 0 and mode == 0:
-                min_prob = csr_matrix(min_)
-                max_prob = csr_matrix(max_)
-            else:
-                min_prob = vstack((min_prob, csr_matrix(min_)), format='csr')
-                max_prob = vstack((max_prob, csr_matrix(max_)), format='csr')
-            insert_idx += 1
-
-    self_trans = np.zeros(num_extents)
-    self_trans[num_extents-1] = 1
-    sparse_trans = csr_matrix(self_trans)
-
-    for mode in modes:
-        bar.update(insert_idx)
-        # alive_()
-        min_prob = vstack((min_prob, sparse_trans), format='csr')
-        max_prob = vstack((max_prob, sparse_trans), format='csr')
-        insert_idx += 1
-
-    return min_prob, max_prob
-
-
 # =============================================================================================================
 #  IMDP synthesis
 # =============================================================================================================
+
+
+def matches(test_label, compare_label):
+    separated_test = set(test_label.split('∧'))
+    separated_compare = set(compare_label.split('∧'))
+    if separated_test.issubset(separated_compare):
+        if len(separated_compare) == 3:
+            print(compare_label)
+            print(test_label)
+            exit()
+        return True
+    return False
+
 
 def delta_(q, dfa, label):
     # TODO
     labels = []
     for relation in dfa["trans"]:
-        if relation[0] == q and relation[1] == label:
+        if relation[0] == q and matches(relation[1], label):
             labels.append(relation[2])
 
     return labels
 
 
 def construct_pimdp(dfa, imdp:IMDPModel):
-    # TODO
+
     # this assumes one accepting state and one sink state
     states = dfa["states"]
     size_A = len(states)
     sink_state = dfa["sink"]
     accept_state = dfa["accept"]
 
-    states_sans_accept = states.copy()
-    states_sans_accept.remove(accept_state)
-    states_sans_accept.remove(sink_state)
-
-    # qinit = delta(s, L(s))
-
     N, M = np.shape(imdp.Pmin)
+
     Pmin_new = lil_matrix(np.zeros([N*size_A, M*size_A]))
     Pmax_new = lil_matrix(np.zeros([N*size_A, M*size_A]))
 
@@ -646,20 +614,22 @@ def construct_pimdp(dfa, imdp:IMDPModel):
     pimdp_actions = imdp.actions
     n_actions = len(pimdp_actions)
 
-    new_labels = np.zeros([1, M*size_A])
+    acc_labels = lil_matrix(np.zeros([M*size_A, 1]))
+    sink_labels = lil_matrix(np.zeros([M*size_A, 1]))
+
     idx = 0
     for s in imdp.states:
         for q in states:
             if q == accept_state:
-                new_labels[idx] = 1
+                acc_labels[idx] = 1
+            if q == sink_state:
+                sink_labels[idx] = 1
             pimdp_states.append((s, q))
             idx += 1
-            
+
     for sq in pimdp_states:
         for a in pimdp_actions:
             row_idx = sq[0]*size_A*n_actions + (sq[1]-1)*n_actions + a
-            row_min = np.zeros([1, M*size_A])
-            row_max = np.zeros([1, M*size_A])
             q_prime = delta_(sq[1], dfa, imdp.labels[sq[0]])
             for sqp in pimdp_states:
                 # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
@@ -677,7 +647,9 @@ def construct_pimdp(dfa, imdp:IMDPModel):
     Pmin_new = Pmin_new.tocsr(copy=True)
     Pmax_new = Pmax_new.tocsr(copy=True)
 
-    return None
+    pimdp = PIMDPModel(pimdp_states, imdp.actions, Pmin_new, Pmax_new, imdp.labels, acc_labels, sink_labels)
+
+    return pimdp
 
 
 def label_states(labels, extents, unsafe_label):
@@ -799,6 +771,39 @@ def write_imdp_to_file_bounded(imdp:IMDPModel, Qyes, Qno, filename):
     file_.close()
 
 
+def write_pimdp_to_file(pimdp:PIMDPModel, filename):
+    file_ = open(filename, "w")
+    state_num = len(pimdp.states) + 1
+    action_num = len(pimdp.actions)
+
+    file_.write(f"{state_num}\n")
+    file_.write(f"{action_num}\n")
+
+    file_.write(f"{sum(pimdp.accepting_labels)[0]}\n")  # number of accepting states
+    acc_states = [i for i, a in enumerate(pimdp.accepting_labels) if a > 0]
+    [file_.write(f"{acc_state} ") for acc_state in acc_states]
+    file_.write(f"\n")
+
+    sink_states = [i for i, a in enumerate(pimdp.sink_labels) if a > 0]
+
+    for i in range(state_num):
+        if i not in sink_states:
+            for action in pimdp.actions:
+                row_idx = i*action_num + action
+                pmax = pimdp.Pmax[row_idx].toarray()[0]
+                pmin = pimdp.Pmin[row_idx].toarray()[0]
+                ij = [j for j, v in enumerate(pmax) if v > 0.0001]
+                for j in ij:
+                    file_.write(f"{i} {action} {j} {pmin[j]} {pmax[j]}")
+                    if (i < state_num-1) or (j != ij[len(ij)-1]) or (action < action_num-1):
+                        file_.write(f"\n")
+        else:
+            file_.write(f"{i} {0} {i} {1.} {1.}")
+            if i < state_num-1:
+                file_.write(f"\n")
+    file_.close()
+
+
 def run_imdp_synthesis(imdp_file, k, ep=1e-6, mode1="maximize", mode2="pessimistic"):
     exe_path = "/usr/local/bin/synthesis"  # Assumes that this program is on the user's path
     res = subprocess.run([exe_path, mode1, mode2, str(k), str(ep), imdp_file], capture_output=True, text=True)
@@ -840,7 +845,8 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, n
 
     x_length = domain[0][1] - domain[0][0]
     y_length = domain[1][1] - domain[1][0]
-    fig.set_size_inches(x_length + 1, y_length + 1)
+    ratio = y_length/x_length
+    fig.set_size_inches(x_length + 1, y_length + ratio)
 
     Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
                               (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])

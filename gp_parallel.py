@@ -1,44 +1,34 @@
-from import_script import *
 from crown_scripts import *
 import multiprocessing as mp
-from space_discretize_scripts import *
 
-from juliacall import Main as jl
+# from juliacall import Main as jl
 
-# try:
-#     jl.seval("using PosteriorBounds")
-#
-#     compute_mean_bounds_jl = jl.seval("PosteriorBounds.compute_μ_bounds_bnb_tmp")
-#     compute_sig_bounds_jl = jl.seval("PosteriorBounds.compute_σ_bounds_bnb_tmp")
-#     theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
-#     scale_cKinv = jl.seval("PosteriorBounds.scale_cK_inv")
-# except:
 # jl.seval("using Pkg")
 # Pkg_add = jl.seval("Pkg.add")
 # Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
-jl.seval("using PosteriorBounds")
-
-compute_mean_bounds_jl = jl.seval("PosteriorBounds.compute_μ_bounds_bnb_tmp")
-compute_sig_bounds_jl = jl.seval("PosteriorBounds.compute_σ_bounds_bnb_tmp")
-theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
-scale_cKinv = jl.seval("PosteriorBounds.scale_cK_inv")
+# jl.seval("using PosteriorBounds")
+#
+# compute_mean_bounds_jl = jl.seval("PosteriorBounds.compute_μ_bounds_bnb_tmp")
+# compute_sig_bounds_jl = jl.seval("PosteriorBounds.compute_σ_bounds_bnb_tmp")
+# theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
+# scale_cKinv = jl.seval("PosteriorBounds.scale_cK_inv")
 
 
 ############################################################################################
 #  Transition probabilities
 ############################################################################################
 
-def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, threads=8):
+def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
     num_extents = len(extents)
 
     mean_info = mode_info[0][pre_idx]
     sig_info = mode_info[1][pre_idx]
 
-    check_idx = get_reasonable_extents(extents, mean_info, sig_info, num_dims)
+    check_idx = get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs)
     check_idx.append(num_extents-1)
 
     pool = mp.Pool(threads)
-    results = pool.starmap(erf_transitions, [(num_extents, num_dims, mean_info, sig_info,
+    results = pool.starmap(erf_transitions, [(num_extents, num_dims, sigs, mean_info, sig_info,
                                               post_idx, extents[post_idx]) for post_idx in check_idx])
     pool.close()
 
@@ -57,13 +47,14 @@ def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, threads=8):
     return min_out, max_out
 
 
-def get_reasonable_extents(extents, mean_info, sig_info, num_dims):
+def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
     possible_intersect = {}
     intersect_list = []
     what_sig = 3  # be within 3 standard deviations of the mean
     for dim in range(num_dims):
         possible_intersect[dim] = []
         upper_sig = sig_info[dim][1]  # this is a std deviation
+        upper_sig += sigs[dim]
 
         lower_bound = mean_info[dim][0] - what_sig*upper_sig
         upper_bound = mean_info[dim][1] + what_sig*upper_sig
@@ -80,7 +71,7 @@ def get_reasonable_extents(extents, mean_info, sig_info, num_dims):
     return intersects_
 
 
-def erf_transitions(num_extents, num_dims, mean_info, sig_info, post_idx, post_region):
+def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, post_region):
 
     # check if these two regions intersect
     p_min = 1
@@ -90,8 +81,8 @@ def erf_transitions(num_extents, num_dims, mean_info, sig_info, post_idx, post_r
         lower_mean = mean_info[dim][0]
         upper_mean = mean_info[dim][1]
 
-        upper_sigma = sig_info[dim][1]  # this is a std deviation
-        lower_sigma = sig_info[dim][0]
+        upper_sigma = sig_info[dim][1] + sigs[dim]  # this is a std deviation
+        lower_sigma = sig_info[dim][0] + sigs[dim]
         if lower_sigma is None:
             lower_sigma = upper_sigma * .7
         if lower_sigma > upper_sigma:
@@ -203,7 +194,7 @@ def dkl_posts(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, crown_dir, 
         K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
 
         y_dim = np.reshape(y_data[:, dim], (n_obs,))
-        alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
+        alpha_vec = K_inv @ y_dim
         length_scale = model.covar_module.base_kernel.lengthscale.item()
         output_scale = model.covar_module.outputscale.item()
 
@@ -218,7 +209,6 @@ def dkl_posts(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, crown_dir, 
         K_inv_scaled = scale_cKinv(K_a, out_2, noise)
 
         # Get bounds on the mean function
-        # TODO, figure out why the julia call doesn't work in pool, still fast without it though
         mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
                                          theta_vec_2, theta_vec, dim, mean_bound, max_flag=False)
         mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
@@ -273,7 +263,7 @@ def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, cr
         K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
 
         y_dim = np.reshape(y_data[:, dim], (n_obs,))
-        alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
+        alpha_vec = K_inv @ y_dim
         length_scale = model.covar_module.base_kernel.lengthscale.item()
         output_scale = model.covar_module.outputscale.item()
 
@@ -288,7 +278,6 @@ def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, cr
         K_inv_scaled = scale_cKinv(K_a, out_2, noise)
 
         # Get bounds on the mean function
-        # TODO, figure out why the julia call doesn't work in pool, still fast without it though
         mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
                                          theta_vec_2, theta_vec, dim, mean_bound, max_flag=False)
         mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
@@ -354,7 +343,7 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
             K_inv = np.linalg.inv(K)  # only need to do this once per dim, yay
 
             y_dim = np.reshape(y_data[:, dim], (n_obs,))
-            alpha_vec = K_inv @ y_dim  # TODO, store this for refinement?
+            alpha_vec = K_inv @ y_dim
             length_scale = model.covar_module.base_kernel.lengthscale.item()
             output_scale = model.covar_module.outputscale.item()
 
@@ -370,7 +359,6 @@ def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim,
             K_inv_scaled = out_2*K_inv_
 
             # Get bounds on the mean function
-            # TODO, figure out why the julia call doesn't work in pool, still pretty fast without it though
             mean_bound, x_L, x_U = bound_local_gp_from_nn_jl(x_gp, K_inv_, alpha, out_2, len_2, linear_transform_info,
                                                              theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
                                                              max_flag=False)
@@ -430,7 +418,8 @@ def run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_di
 
 def run_dkl_in_parallel_just_bounds(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir, linear_transform_info,
                                     threads=8, use_regular_gp=False):
-    extent_len = len(extents) - 1
+    # This function parallelizes calls to CROWN to get bounds on the NN output over input regions
+    extent_len = len(extents)
     if not use_regular_gp:
         # this calls the Crown scripts in parallel
         os.chdir(crown_dir)
@@ -470,7 +459,6 @@ def bound_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, linear_t
 
     if max_flag is False:
         # lower bound on mean
-        # TODO, figure out how to parallelize
         for idx in range(num_regions):
             mean_info = compute_mean_bounds_jl(x_gp, K_inv, alpha, output_scale, length_scale,
                                                np.array(linear_transform[idx][dim][4]).astype(np.float64),
@@ -499,7 +487,6 @@ def bound_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, lin
         mi = 10
 
     # upper bound on sigma
-    # TODO, figure out how to parallelize
     for idx in range(num_regions):
         sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale,
                                          np.array(linear_transform[idx][dim][4]).astype(np.float64),
@@ -522,7 +509,6 @@ def bound_local_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, li
 
     if max_flag is False:
         # lower bound on mean
-        # TODO, figure out how to parallelize
         XL = None
         XU = None
         for idx in specific_extents:
