@@ -186,8 +186,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                                 epochs=epochs, lr=nn_lr)
 
     # Splitting data into desired regions for localization
-    local_regions = discretize_space_list(domain, grid_size)
-    local_regions.pop()
+    local_regions = discretize_space_list(domain, grid_size, include_space=False)
     data_by_region = separate_data_into_regions_new(local_regions, all_data[mode])
 
     print('Optimizing GP parameters\n')
@@ -256,8 +255,8 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
                 optimizer.step()
 
-            if final_loss > -1.:
-                # keep training for another 100 iterations
+            if final_loss > -1. and len(keys) < 4:
+                # keep training for another 200 iterations
                 print('Continuing training on this dimension...')
                 for i in range(200):
                     # Zero gradients from previous iteration
@@ -276,7 +275,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
                     optimizer.step()
 
-            if not use_regular_gp:
+            if not use_regular_gp and global_dir_name is not None:
                 setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
                 torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
                 nn_to_save = model.feature_extractor
@@ -825,13 +824,24 @@ def res_to_numbers(res):
 
     return res_mat
 
+
+def refine_check(imdp:IMDPModel, res, q_question, n_best):
+    theta = np.zeros([len(q_question),])
+    P_max_cols = imdp.Pmax.sum(axis=0)
+    P_min_cols = imdp.Pmin.sum(axis=0)
+    for idx, val in enumerate(q_question):
+        theta[idx] = (P_max_cols[0, val] - P_min_cols[0, val])*(res[val][3] - res[val][2])
+
+    n_best = min(n_best, len(q_question))
+    refine_regions = np.sort(np.argsort(theta)[::-1][:n_best])
+    return refine_regions
+
 # =============================================================================================================
 #  Plot IMDP Synthesis Results
 # =============================================================================================================
 
 
-def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, num_dfa_states=1, min_threshold=0.8, prob_plots=False, lazy_flag=False,
-                              plot_tag="", trajectories=None, dfa_init_state=1):
+def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, min_threshold=0.8):
     extents = imdp.extents
 
     imdp_dir = global_exp_dir + f"/imdp_{k}"
@@ -928,5 +938,5 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, n
     plt.show(block=False)
     plt.savefig(imdp_dir + f'/synthesis_results_{k}.png')
 
-    return None
+    return maybe_regions.extend(sat_regions)
 

@@ -68,8 +68,8 @@ def setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, us
 
 
 def run_dkl_crown_parallel(region_area, crown_dir, d, mode, dim, region_idx):
-    x_min = [region_area[k][0] for k in list(region_area)]
-    x_max = [region_area[k][1] for k in list(region_area)]
+    x_min = [k[0] for k in list(region_area)]
+    x_max = [k[1] for k in list(region_area)]
 
     file_addon = simple_box_filename(x_max, x_min)
 

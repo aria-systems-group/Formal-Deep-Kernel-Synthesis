@@ -32,7 +32,7 @@ def discretize_space(space, grid_size):
                 if val == state[j][0]:
                     boundaries[k]["low"][val].append(i)
 
-    discrete_sets.append(space)
+    # discrete_sets.append(space)
     return discrete_sets, boundaries
 
 
@@ -69,15 +69,13 @@ def inside(x, region):
     return True
 
 
-def discretize_space_list(space, grid_size):
+def discretize_space_list(space, grid_size, include_space=True):
     extents = []
     space_list = []
-    dim_ranges = {}
     for k in list(space):
         x = space[k]
         space_list.append(x)
         x_d = np.arange(x[0], x[1] + grid_size[k], grid_size[k]).tolist()
-        dim_ranges[k] = x_d
         extents.append([[x_d[i], x_d[i + 1]] for i in range(len(x_d) - 1)])
 
     state_extents = (itertools.product(*extents))
@@ -89,5 +87,7 @@ def discretize_space_list(space, grid_size):
             else:
                 discrete_sets[i].append(state[j])
 
-    discrete_sets.append(space_list)
+    if include_space:
+        discrete_sets.append(space_list)
+
     return discrete_sets

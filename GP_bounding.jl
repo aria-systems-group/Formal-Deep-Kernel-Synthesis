@@ -15,6 +15,7 @@ experiment_type = "/deep_kernel_synthesis"
 exp_dir = EXPERIMENT_DIR * experiment_type
 
 experiment_number = parse(Int, args[2])
+refinement = parse(Int, args[3])
 
 if experiment_number == 3
     global_dir_name = "sys_3d"
@@ -24,6 +25,8 @@ elseif experiment_number == 1
     global_dir_name = "sys_3d_"
 elseif experiment_number == 4
     global_dir_name = "sys_3d_gp"
+elseif experiment_number == 999
+    global_dir_name = "test_refine"
 end
 
 global_exp_dir = exp_dir * "/" * global_dir_name
@@ -33,21 +36,29 @@ nn_bounds_dir = global_exp_dir * "/nn_bounds"
 num_modes = general_data[1]
 num_dims = general_data[2]
 num_sub_regions = general_data[3]
-num_regions = general_data[4]
+num_regions = general_data[4]  # this only matters the first time here, won't be used during refinements
 
 # =====================================================================================
 # 3. Use NN posteriors as input spaces for the GP and get bounds on that
 # =====================================================================================
+if refinement == 0
+    mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
+    sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
+else
+    mean_bound = numpy.load(global_exp_dir*"/mean_data_$mode" * "_$refinement.npy")
+    mean_bound = convert(SharedArray, mean_bound)
+    sig_bound = numpy.load(global_exp_dir*"/sig_data_$mode" * "_$refinement.npy")
+    sig_bound = convert(SharedArray, sig_bound)
+end
 
-mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
-sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
+
 for mode in 1:num_modes
     if isfile(global_exp_dir*"/sig_data_$mode.npy")
         @info "moving to next mode"
         continue
     end
 
-    linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$mode.npy")
+    linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$mode"*"_$refinement.npy")
     convert(SharedArray, linear_bounds)
 
     mode_runtime = @elapsed begin
@@ -56,7 +67,7 @@ for mode in 1:num_modes
                 # load all the data for this mode
                 dim_region_filename = nn_bounds_dir * "/linear_bounds_$mode" * "_$sub_idx" * "_$dim"
 
-                specific_extents = numpy.load(dim_region_filename*"_these_indices.npy")  # need to add 1 to this
+                specific_extents = numpy.load(dim_region_filename*"_these_indices_$refinement.npy")  # need to add 1 to this
                 x_gp = numpy.load(dim_region_filename*"_x_gp.npy")
                 theta_vec = numpy.load(dim_region_filename*"_theta_vec.npy")
                 theta_vec_2 = numpy.load(dim_region_filename*"_theta_vec_2.npy")
@@ -83,8 +94,8 @@ for mode in 1:num_modes
 
                 # parallelize getting mean bounds and variance bounds
                  @sync @distributed for idx in specific_extents
-                    x_L = linear_bounds[idx+1, dim, 1, :]
-                    x_U = linear_bounds[idx+1, dim, 2, :]
+                    x_L = linear_bounds[idx+1, 1, :]
+                    x_U = linear_bounds[idx+1, 2, :]
 
                     # get lower mean bounds
                     mean_info_l = PosteriorBounds.compute_μ_bounds_bnb(gp, x_L, x_U, theta_vec_2,
@@ -132,8 +143,8 @@ for mode in 1:num_modes
     end
     @info "Finished getting bounds for mode $mode in $mode_runtime seconds"
     # save data
-    numpy.save(global_exp_dir*"/mean_data_$mode", mean_bound)
-    numpy.save(global_exp_dir*"/sig_data_$mode", sig_bound)
+    numpy.save(global_exp_dir*"/mean_data_$mode" * "_$refinement", mean_bound)
+    numpy.save(global_exp_dir*"/sig_data_$mode" * "_$refinement", sig_bound)
 end
 
 @info "Finished bounding the GPs"

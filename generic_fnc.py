@@ -1,7 +1,5 @@
 
-from import_script import *
 from dynamics_script import *
-from mpl_toolkits.mplot3d import axes3d
 
 # ======================================================================
 # 1. Define NN structure and box dataset for crown
@@ -211,15 +209,17 @@ def loss_function_theta(unknown_dyn_model, y_data, x_data):
 
 
 def get_grid_info(X, grid_len):
+    large_grid = {k: X[k][1] - X[k][0] for k in list(X)}
     if len(X) < 3:
         grid_size = {k: grid_len for k in list(X)}
-        large_grid = X
     elif len(X) == 3:
-        grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1}
-        large_grid = {"x1": 5, "x2": 1, "x3": 1}
+        # grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1}
+        # large_grid = {"x1": 5, "x2": 1, "x3": 1}
+        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
+        grid_size = {"x1": 1., "x2": 1., "x3": 0.5}
+        print("using super coarse grid")
     elif len(X) == 5:
         grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.2, "x4": 0.2, "x5": 0.2}
-        large_grid = {"x1": 2, "x2": 2, "x3": 0.4, "x4": 0.4, "x5": 0.4}
     else:
         exit()
 

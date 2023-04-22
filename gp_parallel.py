@@ -1,22 +1,12 @@
 from crown_scripts import *
+from space_discretize_scripts import discretize_space, discretize_space_list
 import multiprocessing as mp
-
-# from juliacall import Main as jl
-
-# jl.seval("using Pkg")
-# Pkg_add = jl.seval("Pkg.add")
-# Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
-# jl.seval("using PosteriorBounds")
-#
-# compute_mean_bounds_jl = jl.seval("PosteriorBounds.compute_μ_bounds_bnb_tmp")
-# compute_sig_bounds_jl = jl.seval("PosteriorBounds.compute_σ_bounds_bnb_tmp")
-# theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
-# scale_cKinv = jl.seval("PosteriorBounds.scale_cK_inv")
 
 
 ############################################################################################
 #  Transition probabilities
 ############################################################################################
+
 
 def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
     num_extents = len(extents)
@@ -25,7 +15,7 @@ def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
     sig_info = mode_info[1][pre_idx]
 
     check_idx = get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs)
-    check_idx.append(num_extents-1)
+    check_idx.append(num_extents - 1)
 
     pool = mp.Pool(threads)
     results = pool.starmap(erf_transitions, [(num_extents, num_dims, sigs, mean_info, sig_info,
@@ -56,8 +46,8 @@ def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
         upper_sig = sig_info[dim][1]  # this is a std deviation
         upper_sig += sigs[dim]
 
-        lower_bound = mean_info[dim][0] - what_sig*upper_sig
-        upper_bound = mean_info[dim][1] + what_sig*upper_sig
+        lower_bound = mean_info[dim][0] - what_sig * upper_sig
+        upper_bound = mean_info[dim][1] + what_sig * upper_sig
         for idx, region in enumerate(extents):
             if region[dim][1] > lower_bound and region[dim][0] < upper_bound:
                 # if the 3*sigma lower bound is less than the higher value of the region and the 3*sigma upper
@@ -72,7 +62,6 @@ def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
 
 
 def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, post_region):
-
     # check if these two regions intersect
     p_min = 1
     p_max = 1
@@ -148,277 +137,15 @@ def prob_via_erf(lb, la, mean, sigma):
     # Pr(la <= X <= lb) when X ~ N(mean, sigma)
     return 0.5 * (math.erf((lb - mean) / (math.sqrt(2) * sigma)) - math.erf((la - mean) / (math.sqrt(2) * sigma)))
 
+
 ############################################################################################
 #  DKL posteriors
 ############################################################################################
 
 
-def dkl_posts(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, crown_dir, experiment_dir, threads=8):
-    # returns a list organized as [mean bounds, sig bounds, NN linear transform]
-    # mean bounds is a list of tuples of tuples [((dim_upper, dim_lower) for each dim) for each region], same for sig
-    # NN linear transform is a list of tuples of tuples [((lA, uA, l_bias, u_bias, bounds_min, bounds_max) for each dim) for each region]
-
-    num_regions = len(extents) - 1
-    num_dims = len(dkl_by_dim)
-    n_obs = max(np.shape(y_data))
-
-    linear_transform_info = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
-    mean_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-    sig_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-
-    # first get crown posts for each dim
-    # dkl_by_dim is a list [[model, likelihood] for each dim]
-
-    for dim in range(num_dims):
-        linear_transform_info = run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir,
-                                                    linear_transform_info, threads=threads)
-
-        # setup some intermediate values
-        # pass x_train through the NN portion to get the kernel inputs
-        dim_gp = dkl_by_dim[dim]
-        model = dim_gp[0]
-        model.cpu()  # unfortunately needs to be on cpu to access values
-        nn_portion = model.feature_extractor
-        with torch.no_grad():
-            kernel_inputs = nn_portion.forward(x_data)
-
-        noise = model.likelihood.noise.item()
-        noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-        covar_module = model.covar_module
-        kernel_mat = covar_module(kernel_inputs)
-        kernel_mat = kernel_mat.evaluate()
-        K_ = kernel_mat.detach().numpy() + noise_mat
-        # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-        K_ = (K_ + K_.transpose()) / 2.
-        K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
-
-        y_dim = np.reshape(y_data[:, dim], (n_obs,))
-        alpha_vec = K_inv @ y_dim
-        length_scale = model.covar_module.base_kernel.lengthscale.item()
-        output_scale = model.covar_module.outputscale.item()
-
-        # convert to julia input structure
-        x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-        K_a = np.array(K_)
-        K_inv_a = np.array(K_inv)
-        alpha = np.array(alpha_vec)
-        out_2 = output_scale**2.
-        len_2 = length_scale**2.
-        theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-        K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-
-        # Get bounds on the mean function
-        mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, dim, mean_bound, max_flag=False)
-        mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, dim, mean_bound, max_flag=True)
-
-        # get upper bounds on variance
-        sig_bound = bound_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound)
-        # sig_bound = bound_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-        #                                  theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound, min_flag=True)
-
-    return [mean_bound, sig_bound, linear_transform_info]
-
-
-def dkl_posts_fixed_nn(dkl_by_dim, x_data, y_data, mode, extents, nn_out_dim, crown_dir, experiment_dir, threads=8):
-    # returns a list organized as [mean bounds, sig bounds, NN linear transform]
-    # mean bounds is a list of tuples of tuples [((dim_upper, dim_lower) for each dim) for each region], same for sig
-    # NN linear transform is a list of tuples of tuples [((lA, uA, l_bias, u_bias, bounds_min, bounds_max) for each dim) for each region]
-
-    num_regions = len(extents) - 1
-    num_dims = len(dkl_by_dim)
-    n_obs = max(np.shape(y_data))
-
-    linear_transform_info = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
-    mean_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-    sig_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-
-    # first get crown posts for each dim
-    linear_transform_info = run_dkl_in_parallel(extents, mode, range(num_dims), nn_out_dim, crown_dir, experiment_dir,
-                                                linear_transform_info, threads=threads)
-    print('Finished bounding the NN portion')
-    for dim in range(num_dims):
-
-        # setup some intermediate values
-        # pass x_train through the NN portion to get the kernel inputs
-        dim_gp = dkl_by_dim[dim]
-        model = dim_gp[0]
-        model.cpu()  # unfortunately needs to be on cpu to access values
-        nn_portion = model.feature_extractor
-        with torch.no_grad():
-            kernel_inputs = nn_portion.forward(x_data)
-
-        noise = model.likelihood.noise.item()
-        noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-        covar_module = model.covar_module
-        kernel_mat = covar_module(kernel_inputs)
-        kernel_mat = kernel_mat.evaluate()
-        K_ = kernel_mat.detach().numpy() + noise_mat
-        # enforce perfect symmetry, it is very close but causes errors when computing sig bounds
-        K_ = (K_ + K_.transpose()) / 2.
-        K_inv = np.linalg.inv(K_)  # only need to do this once per dim, yay
-
-        y_dim = np.reshape(y_data[:, dim], (n_obs,))
-        alpha_vec = K_inv @ y_dim
-        length_scale = model.covar_module.base_kernel.lengthscale.item()
-        output_scale = model.covar_module.outputscale.item()
-
-        # convert to julia input structure
-        x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-        K_a = np.array(K_)
-        K_inv_a = np.array(K_inv)
-        alpha = np.array(alpha_vec)
-        out_2 = output_scale
-        len_2 = length_scale**2.
-        theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-        K_inv_scaled = scale_cKinv(K_a, out_2, noise)
-
-        # Get bounds on the mean function
-        mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, dim, mean_bound, max_flag=False)
-        mean_bound = bound_gp_from_nn_jl(x_gp, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, dim, mean_bound, max_flag=True)
-
-        # get upper bounds on variance
-        sig_bound = bound_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-                                         theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound)
-        # sig_bound = bound_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-        #                                  theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound, min_flag=True)
-
-    return [mean_bound, sig_bound, linear_transform_info]
-
-
-def local_dkl_posts_fixed_nn(dkl_by_dim, mode, extents, region_info, nn_out_dim, crown_dir, experiment_dir, threads=8):
-    # returns a list organized as [mean bounds, sig bounds, NN linear transform]
-    # mean bounds is a list of tuples of tuples [((dim_upper, dim_lower) for each dim) for each region], same for sig
-    # NN linear transform is a list of tuples of tuples [((lA, uA, l_bias, u_bias, bounds_min, bounds_max) for each dim)
-    # for each region]
-
-    num_regions = len(extents) - 1
-    num_sub_regions = len(region_info)
-    num_dims = len(dkl_by_dim[0])
-
-    linear_transform_info = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
-    mean_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-    sig_bound = [[[None, None] for dim in range(num_dims)] for idx in range(num_regions)]
-
-    # first get crown posts for each dim, this uses a fixed neural network for each dimension, so it is
-    # sufficent to get the bounds once
-    linear_transform_info = run_dkl_in_parallel(extents, mode, range(num_dims), nn_out_dim, crown_dir, experiment_dir,
-                                                linear_transform_info, threads=threads)
-
-    print('Finished bounding the NN portion')
-    for sub_idx in range(num_sub_regions):
-        region = region_info[sub_idx][2]
-        x_data = torch.tensor(np.transpose(region_info[sub_idx][0]), dtype=torch.float32)
-        y_data = np.transpose(region_info[sub_idx][1])
-        n_obs = max(np.shape(y_data))
-
-        # identify which extents are in this region and their indices
-        specific_extents = extents_in_region(extents, region)
-
-        for dim in range(num_dims):
-            # setup some intermediate values
-            # pass x_train through the NN portion to get the kernel inputs
-            dim_gp = dkl_by_dim[sub_idx][dim]
-            model = dim_gp[0]
-            model.cpu()  # unfortunately needs to be on cpu to access values
-            nn_portion = model.feature_extractor
-            with torch.no_grad():
-                kernel_inputs = nn_portion.forward(x_data)
-
-            noise = model.likelihood.noise.item()
-            noise_mat = noise * np.identity(np.shape(kernel_inputs)[0])
-
-            covar_module = model.covar_module
-            kernel_mat = covar_module(kernel_inputs)
-            kernel_mat = kernel_mat.evaluate()
-            K = kernel_mat.detach().numpy() + noise_mat
-            # enforce symmetry, it is very close but causes errors when computing sig bounds
-            K = (K + K.transpose()) / 2.
-            K_inv = np.linalg.inv(K)  # only need to do this once per dim, yay
-
-            y_dim = np.reshape(y_data[:, dim], (n_obs,))
-            alpha_vec = K_inv @ y_dim
-            length_scale = model.covar_module.base_kernel.lengthscale.item()
-            output_scale = model.covar_module.outputscale.item()
-
-            # convert to julia input structure
-            x_gp = np.array(np.transpose(kernel_inputs.detach().numpy())).astype(np.float64)
-            K_ = np.array(K)
-            K_inv_ = np.array(K_inv)
-            alpha = np.array(alpha_vec)
-            out_2 = output_scale
-            len_2 = length_scale**2.
-            theta_vec, theta_vec_2 = theta_vectors(x_gp, len_2)
-            # K_inv_scaled = scale_cKinv(K_, out_2, noise)
-            K_inv_scaled = out_2*K_inv_
-
-            # Get bounds on the mean function
-            mean_bound, x_L, x_U = bound_local_gp_from_nn_jl(x_gp, K_inv_, alpha, out_2, len_2, linear_transform_info,
-                                                             theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
-                                                             max_flag=False)
-            mean_bound = bound_local_gp_from_nn_jl(x_gp, K_inv_, alpha, out_2, len_2, linear_transform_info,
-                                                   theta_vec_2, theta_vec, dim, mean_bound, specific_extents,
-                                                   max_flag=True)
-
-            # get bounds on variance
-            worst_case_sig = compute_sig_bounds_jl(x_gp, K_, K_inv_, alpha, out_2, len_2, x_L, x_U, theta_vec_2,
-                                                   theta_vec, K_inv_scaled, max_iterations=500, bound_epsilon=1e-4)
-            worst_sig = np.sqrt(worst_case_sig[2])
-            print(f"Worst case sigma for sub-region {sub_idx+1} and dim {dim} is {worst_sig}")
-
-            sig_bound = bound_local_sig_from_nn_jl(x_gp, K_, K_inv_, alpha, out_2, len_2, linear_transform_info,
-                                                   theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound,
-                                                   specific_extents, worst_case=worst_sig)
-
-            # sig_bound = bound_local_sig_from_nn_jl(x_gp, K_a, K_inv_a, alpha, out_2, len_2, linear_transform_info,
-            #                                        theta_vec_2, theta_vec, K_inv_scaled, dim, sig_bound,
-            #                                        specific_extents, min_flag=True)
-
-        print(f'Finished sub-region {sub_idx+1} of {num_sub_regions}')
-
-    return [mean_bound, sig_bound, linear_transform_info]
-
-
-def run_dkl_in_parallel(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir, linear_transform_info, 
-                        threads=8):
-    # this calls the Crown scripts in parallel
-    extent_len = len(extents) - 1
-
-    os.chdir(crown_dir)
-
-    # if dim is a range then there is a fixed NN for every dimension, else there is a different NN for every dimension
-    if type(dim) is range:
-        dim_ = 0
-    else:
-        dim_ = dim
-
-    pool = mp.Pool(threads)
-    results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, nn_out_dim, mode, dim_,
-                           idx) for idx in range(extent_len)])
-    pool.close()
-
-    # store the results
-    os.chdir(experiment_dir)
-    if type(dim) is range:
-        for dims in dim:
-            for index, lin_trans in enumerate(results):
-                linear_transform_info[index][dims] = lin_trans
-    else:
-        for index, lin_trans in enumerate(results):
-            linear_transform_info[index][dim] = lin_trans
-
-    return linear_transform_info
-
-
-def run_dkl_in_parallel_just_bounds(extents, mode, dim, nn_out_dim, crown_dir, experiment_dir, linear_transform_info,
-                                    threads=8, use_regular_gp=False):
-    # This function parallelizes calls to CROWN to get bounds on the NN output over input regions
+def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experiment_dir, linear_bounds_info,
+                                    linear_transform_info, threads=8, use_regular_gp=False):
+    # This function does parallel calls to CROWN to get bounds on the NN output over input regions
     extent_len = len(extents)
     if not use_regular_gp:
         # this calls the Crown scripts in parallel
@@ -427,145 +154,176 @@ def run_dkl_in_parallel_just_bounds(extents, mode, dim, nn_out_dim, crown_dir, e
         dim_ = 0
         pool = mp.Pool(threads)
         results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, nn_out_dim, mode, dim_,
-                               idx) for idx in range(extent_len)])
+                                                         idx) for idx in range(extent_len)])
         pool.close()
 
         # store the results
         os.chdir(experiment_dir)
-        for dims in dim:
-            for index, lin_trans in enumerate(results):
-                saved_vals = [np.array(lin_trans[4]).astype(np.float64), np.array(lin_trans[5]).astype(np.float64)]
-                linear_transform_info[index][dims] = saved_vals
+        for index, lin_trans in enumerate(results):
+            saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
+            linear_bounds_info[index] = saved_vals
+            linear_transform_info[index] = np.array([lin_trans[0], lin_trans[1], lin_trans[2], lin_trans[3]])
 
     else:
-        for dims in dim:
-            for index, region in enumerate(extents):
-                x_min = [region[k][0] for k in list(region)]
-                x_max = [region[k][1] for k in list(region)]
-                saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
-                linear_transform_info[index][dims] = saved_vals
+        for index, region in enumerate(extents):
+            x_min = [k[0] for k in list(region)]
+            x_max = [k[1] for k in list(region)]
+            saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
+            linear_bounds_info[index] = saved_vals
 
-    return np.array(linear_transform_info)
-
-############################################################################################
-#  Julia Call portions
-############################################################################################
+    return linear_bounds_info, linear_transform_info
 
 
-def bound_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, linear_transform, theta_vec_2, theta_vec, dim,
-                        mean_bound, max_flag=False):
+def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, nn_out_dim, global_exp_dir,
+                         experiment_dir, nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False):
 
-    num_regions = np.shape(linear_transform)[0]
+    # for each region in the refinement list, check which dimension causes the largest expansion across modes
+    print("Starting refinement procedure")
+    pool = mp.Pool(threads)
+    dim_list = pool.starmap(dim_checker, [(extents[idx], region_data, modes, idx) for idx in refine_states])
 
-    if max_flag is False:
-        # lower bound on mean
-        for idx in range(num_regions):
-            mean_info = compute_mean_bounds_jl(x_gp, K_inv, alpha, output_scale, length_scale,
-                                               np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                               np.array(linear_transform[idx][dim][5]).astype(np.float64),
-                                               theta_vec_2, theta_vec)
-            mean_bound[idx][dim][0] = mean_info[1]
+    # now have which dimensions each region needs to be split across, pull out those extents, split them and rerun crown
+    crown_regions = pool.starmap(get_new_regions, [(extents[idx], dim_list[i], threshold)
+                                                   for i, idx in enumerate(refine_states)])
 
-    else:
-        # upper bound on mean
-        for idx in range(num_regions):
-            mean_info = compute_mean_bounds_jl(x_gp, K_inv, -alpha, output_scale, length_scale,
-                                               np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                               np.array(linear_transform[idx][dim][5]).astype(np.float64),
-                                               theta_vec_2, theta_vec)
-            mean_bound[idx][dim][1] = -mean_info[1]
+    pool.close()
 
-    return mean_bound
+    new_crown_regions = []
+    for i in crown_regions:
+        new_crown_regions.extend(i)
 
+    # update extents
+    extents = extents.tolist()
+    domain = extents.pop()
+    for idx in reversed(refine_states):
+        extents.pop(idx)
 
-def bound_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, linear_transform, theta_vec_2, theta_vec,
-                         K_inv_scaled, dim, sig_bound, min_flag=False):
+    start_idx = len(extents)
+    num_new = len(new_crown_regions)
 
-    num_regions = np.shape(linear_transform)[0]
-    mi = 500
-    if min_flag:
-        mi = 10
+    # add new extents to array and save
+    extents.extend(new_crown_regions)
+    extents.append(domain)
+    filename = global_exp_dir + f"/extents_{refinement+1}"
+    np.save(filename, np.array(extents))
 
-    # upper bound on sigma
-    for idx in range(num_regions):
-        sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale,
-                                         np.array(linear_transform[idx][dim][4]).astype(np.float64),
-                                         np.array(linear_transform[idx][dim][5]).astype(np.float64),
-                                         theta_vec_2, theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag)
-        sig_ = sig_info[2]  # this is a std deviation
-        if min_flag:
-            sig_ = sig_info[1]
+    # these are the new indices to get bound for
+    specific_extents = np.array([i for i in range(start_idx, start_idx + num_new)])
 
-        if min_flag:
-            sig_bound[idx][dim][0] = sig_
-        else:
-            sig_bound[idx][dim][1] = sig_
+    linear_bounds = [[] for _ in range(num_new)]
+    linear_transform = [[] for _ in range(num_new)]
 
-    return sig_bound
+    # nn_out_dim is the dimension of input as well for our cases
+    mean_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
+    sig_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
+    for mode in modes:
+        linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(new_crown_regions, mode, nn_out_dim,
+                                                                          crown_dir, experiment_dir, linear_bounds,
+                                                                          linear_transform, threads=threads,
+                                                                          use_regular_gp=use_regular_gp)
+        filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement}.npy"
+        lin_bounds_old = np.load(filename)
+        lin_bounds_old = lin_bounds_old.tolist()
+        lin_bounds_old.extend(linear_bounds)
 
+        filename = nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}.npy"
+        lin_trans_old = np.load(filename)
+        lin_trans_old = lin_trans_old.tolist()
+        lin_trans_old.extend(linear_transform)
 
-def bound_local_gp_from_nn_jl(x_gp, K_inv, alpha, output_scale, length_scale, linear_transform, theta_vec_2, theta_vec,
-                              dim, mean_bound, specific_extents, max_flag=False):
+        mean_bounds = region_data[mode][0]
+        mean_bounds = mean_bounds.tolist()
+        mean_bounds.extend(mean_extension)
 
-    if max_flag is False:
-        # lower bound on mean
-        XL = None
-        XU = None
-        for idx in specific_extents:
-            x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
-            x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
+        sig_bounds = region_data[mode][1]
+        sig_bounds = sig_bounds.tolist()
+        sig_bounds.extend(sig_extension)
 
-            if XL is None:
-                XL = x_L
-                XU = x_U
-            else:
-                XL = np.minimum(XL, x_L)
-                XU = np.maximum(XU, x_U)
+        # remove the refined indices, also save a file listing what regions need updated
+        # also need to modify mean and sig bound structures to be the appropriate size
+        for idx in reversed(refine_states):
+            # TODO, make this modular for local gps?
+            # TODO, figure out how to modify transition probabilities efficiently
+            lin_bounds_old.pop(idx)
+            lin_trans_old.pop(idx)
+            mean_bounds.pop(idx)
+            sig_bounds.pop(idx)
 
-            mean_info = compute_mean_bounds_jl(x_gp, K_inv, alpha, output_scale, length_scale,
-                                               x_L, x_U, theta_vec_2, theta_vec)
-            mean_bound[idx][dim][0] = mean_info[1]
+        # save the bounds for new regions and adjusted mean/sig arrays
+        np.save(nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement+1}", np.array(lin_bounds_old))
+        np.save(nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement+1}", np.array(lin_trans_old))
+        np.save(global_exp_dir + f"/mean_data_{mode + 1}_{refinement+1}", np.array(mean_bounds))
+        np.save(global_exp_dir + f"/sig_data_{mode + 1}_{refinement+1}", np.array(sig_bounds))
 
-        return mean_bound, XL, XU
-
-    else:
-        # upper bound on mean
-        for idx in specific_extents:
-            x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
-            x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
-            mean_info = compute_mean_bounds_jl(x_gp, K_inv, -alpha, output_scale, length_scale,
-                                               x_L, x_U, theta_vec_2, theta_vec)
-            mean_bound[idx][dim][1] = -mean_info[1]
-
-        return mean_bound
+        # save the extents to refine
+        for dim in range(nn_out_dim):
+            sub_idx = 0
+            dim_region_filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{sub_idx + 1}_{dim + 1}"
+            np.save(dim_region_filename+f"_these_indices_{refinement+1}", specific_extents)
 
 
-def bound_local_sig_from_nn_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, linear_transform, theta_vec_2,
-                               theta_vec, K_inv_scaled, dim, sig_bound, specific_extents, min_flag=False, worst_case=0.3):
+def dim_checker(region, region_data, modes, idx):
+    x_ranges = [region[k] for k in range(len(region))]
+    vertices = list(itertools.product(*x_ranges))
 
-    # upper bound on sigma
-    mi = 20  # 500
-    if min_flag:
-        mi = 5
+    xi_max = 0
+    max_dim = None
+    for mode in modes:
+        lin_transform = region_data[mode][2][idx]
+        lA = lin_transform[0]
+        uA = lin_transform[1]
+        l_bias = lin_transform[2]
+        u_bias = lin_transform[3]
 
-    for idx in specific_extents:
-        x_L = np.array(linear_transform[idx][dim][4]).astype(np.float64)
-        x_U = np.array(linear_transform[idx][dim][5]).astype(np.float64)
+        v_low = []
+        v_up = []
+        for vertex in vertices:
+            x_input = np.array(vertex)
+            l_out = lA @ x_input + l_bias
+            u_out = uA @ x_input + u_bias
+            v_low.append(l_out.tolist()[0])
+            v_up.append(u_out.tolist()[0])
 
-        sig_info = compute_sig_bounds_jl(x_gp, K_, K_inv, alpha, output_scale, length_scale, x_L, x_U, theta_vec_2,
-                                         theta_vec, K_inv_scaled, max_iterations=mi, min_flag=min_flag,
-                                         bound_epsilon=1e-3)
-        sig_ = np.sqrt(sig_info[2])  # this is a std deviation
-        if sig_ > worst_case:
-            # this means it didn't converge properly, set to worst case
-            sig_ = worst_case
+        checked_pairs = []
+        for idx_1, v1 in enumerate(vertices):
+            for idx_2, v2 in enumerate(vertices):
+                if idx_1 == idx_2:
+                    continue
 
-        if min_flag:
-            sig_bound[idx][dim][0] = sig_
-        else:
-            sig_bound[idx][dim][1] = sig_
+                if (v2, v1) in checked_pairs:
+                    continue
 
-    return sig_bound
+                matching_dims = np.where(np.array(v1) == np.array(v2))[0].tolist()
+                if len(matching_dims) == 0:
+                    continue
+
+                checked_pairs.append((v1, v2))
+
+                vertex_norm = np.linalg.norm(np.array(v1) - np.array(v2), ord=2, axis=0)
+                upper_norm = np.linalg.norm(np.array(v_up[idx_1]) - np.array(v_low[idx_2]), ord=2, axis=0)
+                lower_norm = np.linalg.norm(np.array(v_low[idx_1]) - np.array(v_up[idx_2]), ord=2, axis=0)
+
+                xi_a = max(upper_norm / vertex_norm, lower_norm / vertex_norm)
+                if xi_a > xi_max:
+                    xi_max = xi_a
+                    max_dim = matching_dims
+
+    return max_dim
+
+
+def get_new_regions(old_region, dim_idx, threshold):
+    region = {k: old_region[k] for k in range(len(old_region))}
+    grid_size = {}
+    for k in range(len(old_region)):
+        side = old_region[k]
+        grid_len = (side[1] - side[0])
+        split = 1.0
+        if k in dim_idx:
+            split = 2.0
+        grid_size[k] = max(grid_len / split, threshold)
+    new_regions = discretize_space_list(region, grid_size, include_space=False)
+
+    return new_regions
 
 ############################################################################################
 #  Support functions
@@ -578,7 +336,6 @@ def se_(sig2, l2, x1, x2):
 
 
 def create_kernel_mat(sig2, l2, noise, X, n_obs):
-
     # return a square mat k(X,X)
     K_mat = noise * np.identity(n_obs)
 
@@ -593,12 +350,11 @@ def create_kernel_mat(sig2, l2, noise, X, n_obs):
 
 def extents_in_region(extents, region):
     # returns a list of indices of extents that are inside the region
-    keys = list(extents[0])
     valid = []
     for extent_idx, extent in enumerate(extents):
         in_region = True
-        for idx, k in enumerate(keys):
-            if extent[k][0] < region[idx][0] or extent[k][1] > region[idx][1]:
+        for idx, k in enumerate(list(extent)):
+            if k[0] < region[idx][0] or k[1] > region[idx][1]:
                 # not in this dimension of the region
                 in_region = False
                 break
@@ -615,4 +371,3 @@ def convert_to_list(region):
         rl[dim] = region[dim]
 
     return rl
-

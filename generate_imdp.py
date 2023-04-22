@@ -7,10 +7,13 @@ from dfa_scripts import *
 EXPERIMENT_DIR = os.path.dirname(os.path.abspath(__file__))
 experiment_type = "/deep_kernel_synthesis"
 exp_dir = EXPERIMENT_DIR + experiment_type
+crown_dir = EXPERIMENT_DIR + "/alpha-beta-CROWN/complete_verifier"
 
 reuse_regions = False
 threads = int(sys.argv[1])
 experiment_number = int(sys.argv[2])
+refinement = int(sys.argv[3])
+continue_refine = int(sys.argv[4])
 
 if experiment_number == 2:
     global_dir_name = "sys_2d"
@@ -62,6 +65,17 @@ elif experiment_number == 4:
     goal_set = [[[3., 5.], [0., 1.], [-0.5, 0.5]]]
 
     region_labels = {"a": goal_set, "b": unsafe_set}
+elif experiment_number == 999:
+    global_dir_name = "test_refine"
+    dfa = dict_load(EXPERIMENT_DIR + "/dfa_reach_avoid")
+    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
+
+    unsafe_set = [[[0., 1], [0., 1.], [-0.5, 0.5]]]
+    goal_set = [[[3., 5.], [0., 1.], [-0.5, 0.5]]]
+
+    region_labels = {"a": goal_set, "b": unsafe_set}
 else:
     exit()
 
@@ -73,6 +87,7 @@ global_exp_dir = exp_dir + "/" + global_dir_name
 # abstraction grid size
 grid_len = 0.125
 grid_size, large_grid = get_grid_info(X, grid_len)
+dim = len(X)
 
 # =====================================================================================
 # 4. Construct transition bounds from posteriors
@@ -80,16 +95,21 @@ grid_size, large_grid = get_grid_info(X, grid_len)
 region_data = [[None, None, None] for mode in modes]
 
 # load in julia results, don't need NN linear bounds at the moment
+nn_bounds_dir = global_exp_dir + "/nn_bounds"
 for mode in modes:
-    mean_bounds = np.load(global_exp_dir+f"/mean_data_{mode+1}.npy")
-    sig_bounds = np.load(global_exp_dir+f"/sig_data_{mode+1}.npy")
+    mean_bounds = np.load(global_exp_dir+f"/mean_data_{mode+1}_{refinement}.npy")
+    sig_bounds = np.load(global_exp_dir+f"/sig_data_{mode+1}_{refinement}.npy")
+    lin_transform = np.load(nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}.npy")
     region_data[mode][0] = mean_bounds
     region_data[mode][1] = sig_bounds
+    region_data[mode][2] = lin_transform
 
-file_name = global_exp_dir + "/transition_probs.pkl"
-extents = discretize_space_list(X, grid_size)
+filename = global_exp_dir + f"/extents_{refinement}.npy"
+extents = np.load(filename)
 states = [i for i in range(len(extents) - 1)]
 
+# TODO, allow this to reuse data from previous refinements
+file_name = global_exp_dir + f"/transition_probs_{refinement}.pkl"
 if reuse_regions and os.path.exists(file_name):
     print("Loading previous transitions data...")
     probs = dict_load(file_name)
@@ -113,18 +133,17 @@ del probs
 # 4. Run synthesis/verification
 # =====================================================================================
 
-# TODO, create product IMDP, mostly just need the dfa now
-
 
 print('Generating IMDP Model')
 unsafe_label = "b"
 label_fn = label_states(labels, extents, unsafe_label)
 imdp = IMDPModel(states, modes, min_probs, max_probs, label_fn, extents)
-del max_probs, min_probs, extents
+del max_probs, min_probs
 
 k = 4  # number of time steps
-imdp_filepath = global_exp_dir + f"/imdp-{k}.txt"
+imdp_filepath = global_exp_dir + f"/imdp-{k}_{refinement}.txt"
 
+# TODO, create product IMDP, mild debugging
 # print('Generating PIMDP Model')
 # pimdp = construct_pimdp(dfa, imdp)
 # print('Writing PIMDP to file')
@@ -139,11 +158,26 @@ phi2 = "a"
 # phi1 U<k phi2
 res = bounded_until(imdp, phi1, phi2, k, imdp_filepath, synthesis_flag=True)
 
-res_filepath = global_exp_dir + f"/res-{k}.txt"
+res_filepath = global_exp_dir + f"/res-{k}_{refinement}.txt"
 dict_save(res_filepath, res)
 
 # now plot the results
 print('plotting results')
-plot_verification_results(res, imdp, global_exp_dir, k, region_labels, min_threshold=.9)
+possible_refine = plot_verification_results(res, imdp, global_exp_dir, k, region_labels, min_threshold=.9)
+
+# =====================================================================================
+# 5. Begin refinement setup
+# =====================================================================================
+if continue_refine:
+    print("Identifying states to refine")
+    # check states to refine
+    n_refine = 1000
+    refine_states = refine_check(imdp, res, possible_refine, n_refine)
+
+    # identify which dimensions need split in these extents, do this by checking which dimension has the largest expansion
+    # from the NN linearization
+    print("Getting NN bounds for refinement states")
+    refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, dim, global_exp_dir, EXPERIMENT_DIR,
+                         nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False)
 
 print("Finished")

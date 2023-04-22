@@ -6,7 +6,7 @@
 from generic_fnc import *
 from dynamics_script import *
 from gp_scripts import *
-from space_discretize_scripts import discretize_space
+from space_discretize_scripts import discretize_space_list
 from gp_parallel import *
 
 from juliacall import Main as jl
@@ -36,6 +36,8 @@ use_reLU = True
 known_fnc = None
 nn_epochs = 1000
 nn_lr = 1e-4
+
+refinement = 0
 
 threads = int(sys.argv[1])
 experiment_number = int(sys.argv[2])
@@ -90,6 +92,15 @@ elif experiment_number == 5:
     unsafe_set = [None]
     goal_set = [[[1.5, 2.], [0.5, 2], [-0.4, 0.4], [-0.4, 0.4], [-0.4, 0.4]]]
     region_labels = {"a": goal_set, "b": unsafe_set}
+elif experiment_number == 999:
+    # 3D experiment, 5 modes, 2000 data points per mode
+    global_dir_name = "test_refine"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
+    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    GP_data_points = 2000
+    nn_epochs = 4000
+    epochs = 400
 else:
     exit()
 
@@ -114,11 +125,10 @@ out_dim = d
 
 network_dims = [d, width_1, width_2, out_dim]
 
-extents, boundaries = discretize_space(X, grid_size)
+extents = discretize_space_list(X, grid_size)
+filename = global_exp_dir + f"/extents_{refinement}"
+np.save(filename, np.array(extents))
 extents.pop()
-states = [i for i in range(len(extents))]
-num_extents = len(extents)
-print(f"Number of extents = {num_extents}")
 
 # =====================================================================================
 # 1. Generate training data and learn the functions with deep kernel GPs
@@ -188,30 +198,38 @@ num_dims = len(X)
 num_regions = len(extents)
 num_sub_regions = len(region_info[0])
 
+print(f"Number of extents = {num_regions}")
+
 nn_bounds_dir = global_exp_dir + "/nn_bounds"
 if not os.path.isdir(nn_bounds_dir):
     os.mkdir(nn_bounds_dir)
 
-filename = global_exp_dir + "/general_info"
+filename = global_exp_dir + f"/general_info"
 np.save(filename, np.array([num_modes, num_dims, num_sub_regions, num_regions]))
 
 tic = time.perf_counter()
-linear_bounds = [[[] for dim in range(num_dims)] for idx in range(num_regions)]
+linear_bounds = [[] for idx in range(num_regions)]  # using the same NN across all dimensions for one mode
+linear_transform = [[] for idx in range(num_regions)]
 for mode in modes:
     region_inf = region_info[mode]
 
-    filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}"
-
     if not use_regular_gp:
-        linear_bounds = run_dkl_in_parallel_just_bounds(extents, mode, range(num_dims), out_dim, crown_dir, EXPERIMENT_DIR,
-                                                        linear_bounds, threads=threads, use_regular_gp=use_regular_gp)
+        linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
+                                                                          crown_dir, EXPERIMENT_DIR, linear_bounds,
+                                                                          linear_transform, threads=threads,
+                                                                          use_regular_gp=use_regular_gp)
         print(f"Finished bounding the NN for mode {mode+1}")
     else:
         if mode == 0:
-            linear_bounds = run_dkl_in_parallel_just_bounds(extents, mode, range(num_dims), out_dim, crown_dir,
-                                                            EXPERIMENT_DIR, linear_bounds, threads=threads,
-                                                            use_regular_gp=use_regular_gp)
-    np.save(filename, linear_bounds)
+            linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
+                                                                              crown_dir, EXPERIMENT_DIR, linear_bounds,
+                                                                              linear_transform, threads=threads,
+                                                                              use_regular_gp=use_regular_gp)
+
+    filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement}"
+    np.save(filename, np.array(linear_bounds))
+    filename = nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}"
+    np.save(filename, np.array(linear_transform))
     for sub_idx in range(num_sub_regions):
         region = region_inf[sub_idx][2]
         x_data = torch.tensor(np.transpose(region_inf[sub_idx][0]), dtype=torch.float32)
@@ -267,9 +285,10 @@ for mode in modes:
             np.save(dim_region_filename+"_alpha", alpha_vec)
             np.save(dim_region_filename+"_K_inv_s", K_inv_s)
             np.save(dim_region_filename+"_kernel", np.array([out_2, len_2, ]))
-            np.save(dim_region_filename+"_these_indices", np.array(specific_extents))
+            np.save(dim_region_filename+f"_these_indices_{refinement}", np.array(specific_extents))
 
 toc = time.perf_counter()
+
 if not use_regular_gp:
     print(f"Finished bounding NN portion for all modes in {toc-tic} seconds, moving to Julia \n")
 else:
