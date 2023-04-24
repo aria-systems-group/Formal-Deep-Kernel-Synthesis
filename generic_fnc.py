@@ -216,8 +216,8 @@ def get_grid_info(X, grid_len):
         # grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1}
         # large_grid = {"x1": 5, "x2": 1, "x3": 1}
         grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
-        grid_size = {"x1": 1., "x2": 1., "x3": 0.5}
-        print("using super coarse grid")
+        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.25}
+        print("using coarse grid")
     elif len(X) == 5:
         grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.2, "x4": 0.2, "x5": 0.2}
     else:

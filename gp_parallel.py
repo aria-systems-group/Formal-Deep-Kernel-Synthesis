@@ -144,7 +144,7 @@ def prob_via_erf(lb, la, mean, sigma):
 
 
 def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experiment_dir, linear_bounds_info,
-                                    linear_transform_info, threads=8, use_regular_gp=False):
+                                    linear_transform_m, linear_transform_b, threads=8, use_regular_gp=False):
     # This function does parallel calls to CROWN to get bounds on the NN output over input regions
     extent_len = len(extents)
     if not use_regular_gp:
@@ -162,7 +162,10 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experi
         for index, lin_trans in enumerate(results):
             saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
             linear_bounds_info[index] = saved_vals
-            linear_transform_info[index] = np.array([lin_trans[0], lin_trans[1], lin_trans[2], lin_trans[3]])
+            saved_m = np.array([lin_trans[0], lin_trans[1]])
+            linear_transform_m[index] = saved_m
+            saved_b = np.array([lin_trans[2], lin_trans[3]])
+            linear_transform_b[index] = saved_b
 
     else:
         for index, region in enumerate(extents):
@@ -171,7 +174,7 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experi
             saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
             linear_bounds_info[index] = saved_vals
 
-    return linear_bounds_info, linear_transform_info
+    return linear_bounds_info, linear_transform_m, linear_transform_b
 
 
 def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, nn_out_dim, global_exp_dir,
@@ -210,26 +213,34 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
     # these are the new indices to get bound for
     specific_extents = np.array([i for i in range(start_idx, start_idx + num_new)])
 
-    linear_bounds = [[] for _ in range(num_new)]
-    linear_transform = [[] for _ in range(num_new)]
+    lin_bounds = [[] for _ in range(num_new)]
+    linear_trans_m = [[] for _ in range(num_new)]
+    linear_trans_b = [[] for _ in range(num_new)]
 
     # nn_out_dim is the dimension of input as well for our cases
     mean_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
     sig_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
     for mode in modes:
-        linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(new_crown_regions, mode, nn_out_dim,
-                                                                          crown_dir, experiment_dir, linear_bounds,
-                                                                          linear_transform, threads=threads,
-                                                                          use_regular_gp=use_regular_gp)
+        lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(new_crown_regions, mode,
+                                                                                     nn_out_dim, crown_dir,
+                                                                                     experiment_dir, lin_bounds,
+                                                                                     linear_trans_m, linear_trans_b,
+                                                                                     threads=threads,
+                                                                                     use_regular_gp=use_regular_gp)
         filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement}.npy"
         lin_bounds_old = np.load(filename)
         lin_bounds_old = lin_bounds_old.tolist()
-        lin_bounds_old.extend(linear_bounds)
+        lin_bounds_old.extend(lin_bounds)
 
-        filename = nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}.npy"
-        lin_trans_old = np.load(filename)
-        lin_trans_old = lin_trans_old.tolist()
-        lin_trans_old.extend(linear_transform)
+        filename = nn_bounds_dir + f"/linear_trans_m_{mode + 1}_{refinement}.npy"
+        lin_trans_m_old = np.load(filename)
+        lin_trans_m_old = lin_trans_m_old.tolist()
+        lin_trans_m_old.extend(linear_trans_m)
+
+        filename = nn_bounds_dir + f"/linear_trans_b_{mode + 1}_{refinement}.npy"
+        lin_trans_b_old = np.load(filename)
+        lin_trans_b_old = lin_trans_b_old.tolist()
+        lin_trans_b_old.extend(linear_trans_b)
 
         mean_bounds = region_data[mode][0]
         mean_bounds = mean_bounds.tolist()
@@ -245,13 +256,15 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
             # TODO, make this modular for local gps?
             # TODO, figure out how to modify transition probabilities efficiently
             lin_bounds_old.pop(idx)
-            lin_trans_old.pop(idx)
+            lin_trans_m_old.pop(idx)
+            lin_trans_b_old.pop(idx)
             mean_bounds.pop(idx)
             sig_bounds.pop(idx)
 
         # save the bounds for new regions and adjusted mean/sig arrays
         np.save(nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement+1}", np.array(lin_bounds_old))
-        np.save(nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement+1}", np.array(lin_trans_old))
+        np.save(nn_bounds_dir + f"/linear_trans_m_{mode + 1}_{refinement+1}", np.array(lin_trans_m_old))
+        np.save(nn_bounds_dir + f"/linear_trans_b_{mode + 1}_{refinement+1}", np.array(lin_trans_b_old))
         np.save(global_exp_dir + f"/mean_data_{mode + 1}_{refinement+1}", np.array(mean_bounds))
         np.save(global_exp_dir + f"/sig_data_{mode + 1}_{refinement+1}", np.array(sig_bounds))
 

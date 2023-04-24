@@ -101,6 +101,7 @@ elif experiment_number == 999:
     GP_data_points = 2000
     nn_epochs = 4000
     epochs = 400
+    learning_rate = 1e-4
 else:
     exit()
 
@@ -208,28 +209,34 @@ filename = global_exp_dir + f"/general_info"
 np.save(filename, np.array([num_modes, num_dims, num_sub_regions, num_regions]))
 
 tic = time.perf_counter()
-linear_bounds = [[] for idx in range(num_regions)]  # using the same NN across all dimensions for one mode
-linear_transform = [[] for idx in range(num_regions)]
+lin_bounds = [[] for idx in range(num_regions)]  # using the same NN across all dimensions for one mode
+linear_trans_m = [[] for idx in range(num_regions)]
+linear_trans_b = [[] for idx in range(num_regions)]
 for mode in modes:
     region_inf = region_info[mode]
 
     if not use_regular_gp:
-        linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
-                                                                          crown_dir, EXPERIMENT_DIR, linear_bounds,
-                                                                          linear_transform, threads=threads,
-                                                                          use_regular_gp=use_regular_gp)
+        lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(extents, mode, out_dim, crown_dir,
+                                                                                     EXPERIMENT_DIR, lin_bounds,
+                                                                                     linear_trans_m, linear_trans_b,
+                                                                                     threads=threads,
+                                                                                     use_regular_gp=use_regular_gp)
         print(f"Finished bounding the NN for mode {mode+1}")
     else:
         if mode == 0:
-            linear_bounds, linear_transform = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
-                                                                              crown_dir, EXPERIMENT_DIR, linear_bounds,
-                                                                              linear_transform, threads=threads,
-                                                                              use_regular_gp=use_regular_gp)
+            lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
+                                                                                         crown_dir, EXPERIMENT_DIR,
+                                                                                         lin_bounds, linear_trans_m,
+                                                                                         linear_trans_b,
+                                                                                         threads=threads,
+                                                                                         use_regular_gp=use_regular_gp)
 
     filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement}"
-    np.save(filename, np.array(linear_bounds))
-    filename = nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}"
-    np.save(filename, np.array(linear_transform))
+    np.save(filename, np.array(lin_bounds))
+    filename = nn_bounds_dir + f"/linear_trans_m_{mode + 1}_{refinement}"
+    np.save(filename, np.array(linear_trans_m))
+    filename = nn_bounds_dir + f"/linear_trans_b_{mode + 1}_{refinement}"
+    np.save(filename, np.array(linear_trans_b))
     for sub_idx in range(num_sub_regions):
         region = region_inf[sub_idx][2]
         x_data = torch.tensor(np.transpose(region_inf[sub_idx][0]), dtype=torch.float32)

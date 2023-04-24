@@ -106,7 +106,9 @@ for mode in modes:
 
 filename = global_exp_dir + f"/extents_{refinement}.npy"
 extents = np.load(filename)
-states = [i for i in range(len(extents) - 1)]
+num_states = len(extents) - 1
+states = [i for i in range(num_states)]
+print(f"IMDP will have {num_states} states.")
 
 # TODO, allow this to reuse data from previous refinements
 file_name = global_exp_dir + f"/transition_probs_{refinement}.pkl"

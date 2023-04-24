@@ -44,7 +44,8 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
 
     x_train = all_data[mode][0]
     y_train = all_data[mode][1]
-    n_samples = int(np.shape(x_train)[1]/10.)
+    # n_samples = int(np.shape(x_train)[1]/10.)
+    n_samples = int(np.shape(x_train)[1]/15.)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(random_seed)
@@ -55,7 +56,7 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     y_data = torch.tensor(np.transpose(y_train), dtype=torch.float32).to(device)
     optimizer = torch.optim.Adam(feature_extractor.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss(reduction='sum')
-    print("Training Neural Network on generated data for mode {}...".format(mode))
+    print("Training Neural Network on generated data for mode {}...".format(mode+1))
     for t in range(epochs):
         # Forward pass: compute predicted y by passing x to the model.
         # y_predict = feature_extractor(x_data)
@@ -255,7 +256,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
                 optimizer.step()
 
-            if final_loss > -1. and len(keys) < 4:
+            if False and final_loss > -1. and len(keys) < 4:
                 # keep training for another 200 iterations
                 print('Continuing training on this dimension...')
                 for i in range(200):
