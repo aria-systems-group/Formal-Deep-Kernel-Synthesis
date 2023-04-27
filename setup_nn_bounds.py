@@ -95,12 +95,12 @@ elif experiment_number == 5:
 elif experiment_number == 999:
     # 3D experiment, 5 modes, 2000 data points per mode
     global_dir_name = "test_refine"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 2000
+    GP_data_points = 1000
     nn_epochs = 4000
-    epochs = 400
+    epochs = 600  # 400
     learning_rate = 1e-4
 else:
     exit()

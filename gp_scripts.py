@@ -842,7 +842,7 @@ def refine_check(imdp:IMDPModel, res, q_question, n_best):
 # =============================================================================================================
 
 
-def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, min_threshold=0.8):
+def plot_verification_results(res_mat, imdp, global_exp_dir, k, refinement, region_labels, min_threshold=0.8):
     extents = imdp.extents
 
     imdp_dir = global_exp_dir + f"/imdp_{k}"
@@ -868,6 +868,7 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, m
     sat_regions = []
     unsat_regions = []
     maybe_regions = []
+    q_refine = []
     for i in range(extent_len):
         max_prob = res_mat[i][3]
         min_prob = res_mat[i][2]
@@ -875,10 +876,12 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, m
         if min_prob >= min_threshold:
             # yay this region satisfied
             sat_regions.append(i)
+            q_refine.append(i)
         elif max_prob < min_threshold:
             unsat_regions.append(i)
         else:
             maybe_regions.append(i)
+            q_refine.append(i)
 
     print(f"Qyes = {len(sat_regions)}, Qno = {len(unsat_regions)}, Q? = {len(maybe_regions)}")
 
@@ -886,10 +889,10 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, m
     plotted_list = []
     for idx in maybe_regions:
         region = extents[idx]
-        x_dims = (region[0], region[1])
-        if x_dims in plotted_list:
-            continue
-        plotted_list.append(x_dims)
+        # x_dims = (region[0], region[1])
+        # if x_dims in plotted_list:
+        #     continue
+        # plotted_list.append(x_dims)
 
         region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
                                   (region[0][1], region[1][1]), (region[0][1], region[1][0])])
@@ -902,10 +905,10 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, m
     for idx in sat_regions:
         region = extents[idx]
 
-        x_dims = (region[0], region[1])
-        if x_dims in plotted_list:
-            continue
-        plotted_list.append(x_dims)
+        # x_dims = (region[0], region[1])
+        # if x_dims in plotted_list:
+        #     continue
+        # plotted_list.append(x_dims)
 
         region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
                                   (region[0][1], region[1][1]), (region[0][1], region[1][0])])
@@ -937,7 +940,7 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, region_labels, m
     plt.xlabel('$x_{1}$', fontdict={"size": 15})
     plt.ylabel('$x_{2}$', fontdict={"size": 15})
     plt.show(block=False)
-    plt.savefig(imdp_dir + f'/synthesis_results_{k}.png')
+    plt.savefig(imdp_dir + f'/synthesis_results_{k}_{refinement}.png')
 
-    return maybe_regions.extend(sat_regions)
+    return q_refine
 

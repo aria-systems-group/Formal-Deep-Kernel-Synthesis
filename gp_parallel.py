@@ -181,7 +181,7 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
                          experiment_dir, nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False):
 
     # for each region in the refinement list, check which dimension causes the largest expansion across modes
-    print("Starting refinement procedure")
+    print("Getting NN bounds for refinement states")
     pool = mp.Pool(threads)
     dim_list = pool.starmap(dim_checker, [(extents[idx], region_data, modes, idx) for idx in refine_states])
 
@@ -190,6 +190,7 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
                                                    for i, idx in enumerate(refine_states)])
 
     pool.close()
+    print("Saving new bounds")
 
     new_crown_regions = []
     for i in crown_regions:
@@ -285,15 +286,15 @@ def dim_checker(region, region_data, modes, idx):
         lin_transform = region_data[mode][2][idx]
         lA = lin_transform[0]
         uA = lin_transform[1]
-        l_bias = lin_transform[2]
-        u_bias = lin_transform[3]
+        # l_bias = lin_transform[2]
+        # u_bias = lin_transform[3]
 
         v_low = []
         v_up = []
         for vertex in vertices:
             x_input = np.array(vertex)
-            l_out = lA @ x_input + l_bias
-            u_out = uA @ x_input + u_bias
+            l_out = lA @ x_input  # + l_bias
+            u_out = uA @ x_input  # + u_bias
             v_low.append(l_out.tolist()[0])
             v_up.append(u_out.tolist()[0])
 

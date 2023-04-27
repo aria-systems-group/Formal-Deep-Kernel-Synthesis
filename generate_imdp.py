@@ -99,7 +99,7 @@ nn_bounds_dir = global_exp_dir + "/nn_bounds"
 for mode in modes:
     mean_bounds = np.load(global_exp_dir+f"/mean_data_{mode+1}_{refinement}.npy")
     sig_bounds = np.load(global_exp_dir+f"/sig_data_{mode+1}_{refinement}.npy")
-    lin_transform = np.load(nn_bounds_dir + f"/linear_trans_{mode + 1}_{refinement}.npy")
+    lin_transform = np.load(nn_bounds_dir + f"/linear_trans_m_{mode + 1}_{refinement}.npy")
     region_data[mode][0] = mean_bounds
     region_data[mode][1] = sig_bounds
     region_data[mode][2] = lin_transform
@@ -165,21 +165,23 @@ dict_save(res_filepath, res)
 
 # now plot the results
 print('plotting results')
-possible_refine = plot_verification_results(res, imdp, global_exp_dir, k, region_labels, min_threshold=.9)
+q_refine = plot_verification_results(res, imdp, global_exp_dir, k, refinement, region_labels, min_threshold=.9)
 
+print(len(q_refine))
 # =====================================================================================
 # 5. Begin refinement setup
 # =====================================================================================
-if continue_refine:
+
+if continue_refine == 1:
     print("Identifying states to refine")
     # check states to refine
-    n_refine = 1000
-    refine_states = refine_check(imdp, res, possible_refine, n_refine)
+    n_refine = 500
+    refine_states = refine_check(imdp, res, q_refine, n_refine)
 
-    # identify which dimensions need split in these extents, do this by checking which dimension has the largest expansion
-    # from the NN linearization
-    print("Getting NN bounds for refinement states")
+    # identify which dimensions need split in these extents, do this by checking which dimension has the largest
+    # expansion from the NN linearization
     refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, dim, global_exp_dir, EXPERIMENT_DIR,
                          nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False)
-
-print("Finished")
+    print("Running Julia portion to bound new regions")
+else:
+    print("Finished")
