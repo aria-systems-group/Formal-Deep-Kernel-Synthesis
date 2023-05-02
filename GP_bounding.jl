@@ -41,14 +41,19 @@ num_regions = general_data[4]  # this only matters the first time here, won't be
 # =====================================================================================
 # 3. Use NN posteriors as input spaces for the GP and get bounds on that
 # =====================================================================================
-if refinement == 0
-    mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
-    sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
-end
+# if refinement == 0
+#     mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
+#     sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
+# else
+#     mean_bound = numpy.load(global_exp_dir*"/mean_data_0" * "_$refinement.npy")
+#     mean_bound = convert(SharedArray, mean_bound)
+#     sig_bound = numpy.load(global_exp_dir*"/sig_data_0" * "_$refinement.npy")
+#     sig_bound = convert(SharedArray, sig_bound)
+# end
 
-
+reuse_regions = false
 for mode in 1:num_modes
-    if isfile(global_exp_dir*"/complete_$mode" * "_$refinement.npy")
+    if isfile(global_exp_dir*"/complete_$mode" * "_$refinement.npy") && reuse_regions
         @info "moving to next mode"
         continue
     end
@@ -58,6 +63,9 @@ for mode in 1:num_modes
         mean_bound = convert(SharedArray, mean_bound)
         sig_bound = numpy.load(global_exp_dir*"/sig_data_$mode" * "_$refinement.npy")
         sig_bound = convert(SharedArray, sig_bound)
+    else
+        mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
+        sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
     end
 
     linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$mode"*"_$refinement.npy")

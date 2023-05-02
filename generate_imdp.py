@@ -167,7 +167,6 @@ dict_save(res_filepath, res)
 print('plotting results')
 q_refine = plot_verification_results(res, imdp, global_exp_dir, k, refinement, region_labels, min_threshold=.9)
 
-print(len(q_refine))
 # =====================================================================================
 # 5. Begin refinement setup
 # =====================================================================================
@@ -175,7 +174,7 @@ print(len(q_refine))
 if continue_refine == 1:
     print("Identifying states to refine")
     # check states to refine
-    n_refine = 500
+    n_refine = 750  # 500, 750 is a lot
     refine_states = refine_check(imdp, res, q_refine, n_refine)
 
     # identify which dimensions need split in these extents, do this by checking which dimension has the largest

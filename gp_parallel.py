@@ -251,6 +251,9 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
         sig_bounds = sig_bounds.tolist()
         sig_bounds.extend(sig_extension)
 
+        print(np.shape(sig_bounds))
+        print(np.shape(lin_bounds_old))
+
         # remove the refined indices, also save a file listing what regions need updated
         # also need to modify mean and sig bound structures to be the appropriate size
         for idx in reversed(refine_states):

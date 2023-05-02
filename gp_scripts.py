@@ -719,12 +719,16 @@ def find_q_no(phi1, phi2, labels):
     return qno
 
 
-def bounded_until(imdp, phi1, phi2, k, imdp_filepath, synthesis_flag=False):
+def bounded_until(imdp:IMDPModel, phi1, phi2, k, imdp_filepath, synthesis_flag=False):
 
     # Get the Qyes and Qno states
     Qyes = find_q_yes(phi2, imdp.labels)
     Qno = find_q_no(phi1, phi2, imdp.labels)
     Qno.append(len(imdp.states))  # for leaving the space
+
+    # print(Qno)
+    print(imdp.extents[Qno[0]])
+    exit()
 
     # Write them to the file
     print('Writing IMDP to file')
@@ -828,13 +832,17 @@ def res_to_numbers(res):
 
 def refine_check(imdp:IMDPModel, res, q_question, n_best):
     theta = np.zeros([len(q_question),])
-    P_max_cols = imdp.Pmax.sum(axis=0)
-    P_min_cols = imdp.Pmin.sum(axis=0)
+    P_max_cols = imdp.Pmax.sum(axis=1)
+    P_min_cols = imdp.Pmin.sum(axis=1)
     for idx, val in enumerate(q_question):
-        theta[idx] = (P_max_cols[0, val] - P_min_cols[0, val])*(res[val][3] - res[val][2])
+        theta[idx] = (P_max_cols[val, 0] - P_min_cols[val, 0])*(res[val][3] - res[val][2])
 
     n_best = min(n_best, len(q_question))
-    refine_regions = np.sort(np.argsort(theta)[::-1][:n_best])
+    refine_idx = np.sort(np.argsort(theta)[::-1][:n_best])
+    refine_regions = []
+    for i in refine_idx:
+        refine_regions.append(q_question[i])
+    refine_regions = np.sort(refine_regions)
     return refine_regions
 
 # =============================================================================================================
@@ -857,7 +865,7 @@ def plot_verification_results(res_mat, imdp, global_exp_dir, k, refinement, regi
     x_length = domain[0][1] - domain[0][0]
     y_length = domain[1][1] - domain[1][0]
     ratio = y_length/x_length
-    fig.set_size_inches(x_length + 1, y_length + ratio)
+    fig.set_size_inches(x_length + 1, y_length + 2*ratio)
 
     Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
                               (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])

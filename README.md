@@ -21,6 +21,17 @@ conda env create -f alpha-beta-CROWN/complete_verifier/environment.yml --name de
 conda activate deep-kernel-syn
 ```
 
+### Julia Tools
+Several packages must be installed in Julia for this code, these can be installed by opening julia and the entering the package manager with ].
+They should be added inside the conda environment.
+
+```bash
+pkg> add JuMP
+pkg> add Ipopt
+pkg> add PyCall
+pkg> add https://github.com/aria-systems-group/PosteriorBounds.jl
+```
+
 ### BMDP Tool
 This package depends on the `bmdp-tool` here: https://github.com/aria-systems-group/bmdp-tool
 
