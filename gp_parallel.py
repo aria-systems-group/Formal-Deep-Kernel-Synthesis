@@ -143,7 +143,7 @@ def prob_via_erf(lb, la, mean, sigma):
 ############################################################################################
 
 
-def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experiment_dir, linear_bounds_info,
+def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global_dir, exp_dir, linear_bounds_info,
                                     linear_transform_m, linear_transform_b, threads=8, use_regular_gp=False):
     # This function does parallel calls to CROWN to get bounds on the NN output over input regions
     extent_len = len(extents)
@@ -153,12 +153,12 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experi
 
         dim_ = 0
         pool = mp.Pool(threads)
-        results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, nn_out_dim, mode, dim_,
+        results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, global_dir, nn_out_dim, mode, dim_,
                                                          idx) for idx in range(extent_len)])
         pool.close()
 
         # store the results
-        os.chdir(experiment_dir)
+        os.chdir(exp_dir)
         for index, lin_trans in enumerate(results):
             saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
             linear_bounds_info[index] = saved_vals
@@ -177,8 +177,9 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, experi
     return linear_bounds_info, linear_transform_m, linear_transform_b
 
 
-def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, nn_out_dim, global_exp_dir,
-                         experiment_dir, nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False):
+def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, global_dir_name, nn_out_dim,
+                         global_exp_dir, experiment_dir, nn_bounds_dir, refinement, threshold=1e-5, threads=8,
+                         use_regular_gp=False):
 
     # for each region in the refinement list, check which dimension causes the largest expansion across modes
     print("Getting NN bounds for refinement states")
@@ -186,15 +187,18 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
     dim_list = pool.starmap(dim_checker, [(extents[idx], region_data, modes, idx) for idx in refine_states])
 
     # now have which dimensions each region needs to be split across, pull out those extents, split them and rerun crown
-    crown_regions = pool.starmap(get_new_regions, [(extents[idx], dim_list[i], threshold)
+    small_extents = pool.starmap(get_new_regions, [(extents[idx], dim_list[i], threshold)
                                                    for i, idx in enumerate(refine_states)])
 
     pool.close()
-    print("Saving new bounds")
 
-    new_crown_regions = []
-    for i in crown_regions:
-        new_crown_regions.extend(i)
+    new_regions = []
+    num_added = []
+    for i in small_extents:
+        new_regions.extend(i)
+        num_added.append(len(i))
+
+    num_refined = len(num_added) - 1
 
     # update extents
     extents = extents.tolist()
@@ -203,10 +207,10 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
         extents.pop(idx)
 
     start_idx = len(extents)
-    num_new = len(new_crown_regions)
+    num_new = len(new_regions)
 
     # add new extents to array and save
-    extents.extend(new_crown_regions)
+    extents.extend(new_regions)
     extents.append(domain)
     filename = global_exp_dir + f"/extents_{refinement+1}"
     np.save(filename, np.array(extents))
@@ -222,12 +226,14 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
     mean_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
     sig_extension = np.zeros([num_new, nn_out_dim, 2]).tolist()
     for mode in modes:
-        lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(new_crown_regions, mode,
+        lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(new_regions, mode,
                                                                                      nn_out_dim, crown_dir,
+                                                                                     global_dir_name,
                                                                                      experiment_dir, lin_bounds,
                                                                                      linear_trans_m, linear_trans_b,
                                                                                      threads=threads,
                                                                                      use_regular_gp=use_regular_gp)
+
         filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement}.npy"
         lin_bounds_old = np.load(filename)
         lin_bounds_old = lin_bounds_old.tolist()
@@ -249,21 +255,25 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
 
         sig_bounds = region_data[mode][1]
         sig_bounds = sig_bounds.tolist()
-        sig_bounds.extend(sig_extension)
-
-        print(np.shape(sig_bounds))
-        print(np.shape(lin_bounds_old))
 
         # remove the refined indices, also save a file listing what regions need updated
         # also need to modify mean and sig bound structures to be the appropriate size
-        for idx in reversed(refine_states):
-            # TODO, make this modular for local gps?
+        duplicate_idx = num_new-1
+        for i, idx in enumerate(reversed(refine_states)):
             # TODO, figure out how to modify transition probabilities efficiently
             lin_bounds_old.pop(idx)
             lin_trans_m_old.pop(idx)
             lin_trans_b_old.pop(idx)
             mean_bounds.pop(idx)
+            loop_ = num_added[num_refined - i]
+            old_bound = sig_bounds[idx]
+            for j in range(loop_):
+                # store previously found sigma in the new discretized regions
+                sig_extension[duplicate_idx] = old_bound
+                duplicate_idx -= 1
             sig_bounds.pop(idx)
+
+        sig_bounds.extend(sig_extension)
 
         # save the bounds for new regions and adjusted mean/sig arrays
         np.save(nn_bounds_dir + f"/linear_bounds_{mode + 1}_{refinement+1}", np.array(lin_bounds_old))
@@ -272,6 +282,7 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
         np.save(global_exp_dir + f"/mean_data_{mode + 1}_{refinement+1}", np.array(mean_bounds))
         np.save(global_exp_dir + f"/sig_data_{mode + 1}_{refinement+1}", np.array(sig_bounds))
 
+        print(f"Saved new bounds for mode {mode+1}")
         # save the extents to refine
         for dim in range(nn_out_dim):
             sub_idx = 0

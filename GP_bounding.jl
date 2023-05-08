@@ -17,16 +17,14 @@ exp_dir = EXPERIMENT_DIR * experiment_type
 experiment_number = parse(Int, args[2])
 refinement = parse(Int, args[3])
 
-if experiment_number == 3
-    global_dir_name = "sys_3d"
+if experiment_number == 1
+    global_dir_name = "sys_2d_lin"
 elseif experiment_number == 2
     global_dir_name = "sys_2d"
-elseif experiment_number == 1
-    global_dir_name = "sys_3d_"
+elseif experiment_number == 3
+    global_dir_name = "sys_3d"
 elseif experiment_number == 4
     global_dir_name = "sys_3d_gp"
-elseif experiment_number == 999
-    global_dir_name = "test_refine"
 end
 
 global_exp_dir = exp_dir * "/" * global_dir_name
@@ -38,18 +36,11 @@ num_dims = general_data[2]
 num_sub_regions = general_data[3]
 num_regions = general_data[4]  # this only matters the first time here, won't be used during refinements
 
+dyn_noise = [0.05, 0.05, 0.005]
+
 # =====================================================================================
 # 3. Use NN posteriors as input spaces for the GP and get bounds on that
 # =====================================================================================
-# if refinement == 0
-#     mean_bound = SharedArray(zeros(num_regions, num_dims, 2))
-#     sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
-# else
-#     mean_bound = numpy.load(global_exp_dir*"/mean_data_0" * "_$refinement.npy")
-#     mean_bound = convert(SharedArray, mean_bound)
-#     sig_bound = numpy.load(global_exp_dir*"/sig_data_0" * "_$refinement.npy")
-#     sig_bound = convert(SharedArray, sig_bound)
-# end
 
 reuse_regions = false
 for mode in 1:num_modes
@@ -74,6 +65,7 @@ for mode in 1:num_modes
     mode_runtime = @elapsed begin
         for sub_idx in 1:(num_sub_regions::Int)
             for dim in 1:(num_dims::Int)
+                dim_sig = dyn_noise[dim]
                 # load all the data for this mode
                 dim_region_filename = nn_bounds_dir * "/linear_bounds_$mode" * "_$sub_idx" * "_$dim"
 
@@ -123,19 +115,25 @@ for mode in 1:num_modes
                     mean_bound[idx+1, dim, 2] = -mean_info_u[2]
 
                     # get upper bounds on variance
-                    sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
-                                                                cK_inv_scaled; max_iterations=20,
-                                                                bound_epsilon=1e-3, min_flag=false,
-                                                                prealloc=nothing)
+                    sig_check = sig_bound[idx+1, dim, 2]
+                    if refinement > 0 && sig_check <= dim_sig
+                        # if previous sigma bounds were already small, don't waste time finding better ones
+                        sig_ = sig_check
+                    else
+                        sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+                                                                    cK_inv_scaled; max_iterations=20,
+                                                                    bound_epsilon=1e-3, min_flag=false,
+                                                                    prealloc=nothing)
 
-                    sig_ = sqrt(sig_info[3])  # this is a std deviation
-                    sig_low = sqrt(sig_info[2])
-                    if abs(sig_-sig_low) > sqrt(1e-3)
-                        # this means it didn't converge properly, use expensive quadratic program to find solution
-                        outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
-                                            max_iterations=20, bound_epsilon=1e-2)
+                        sig_ = sqrt(sig_info[3])  # this is a std deviation
+                        sig_low = sqrt(sig_info[2])
+                        if abs(sig_-sig_low) > sqrt(1e-3)
+                            # this means it didn't converge properly, use expensive quadratic program to find solution
+                            outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
+                                                max_iterations=20, bound_epsilon=1e-2)
 
-                        sig_ = outputs[3]
+                            sig_ = outputs[3]
+                        end
                     end
 
                     sig_bound[idx+1, dim, 2] = sig_

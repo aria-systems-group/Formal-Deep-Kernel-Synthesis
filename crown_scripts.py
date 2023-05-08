@@ -62,12 +62,12 @@ def setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, us
                     "path": "models/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)},
                 "solver": {"beta-crown": {"iteration": 30}}, "specification": {"type": "bound"}}
 
-    file_name = crown_dir + "/exp_configs/nn_mode_{}_dim_{}.yaml".format(mode, dim)
+    file_name = crown_dir + "/exp_configs/nn_mode_{}_dim_{}_experiment_{}.yaml".format(mode, dim, global_dir_name)
     file = open(file_name, "w")
     yaml.dump(data, file)
 
 
-def run_dkl_crown_parallel(region_area, crown_dir, d, mode, dim, region_idx):
+def run_dkl_crown_parallel(region_area, crown_dir, global_dir_name, d, mode, dim, region_idx):
     x_min = [k[0] for k in list(region_area)]
     x_max = [k[1] for k in list(region_area)]
 
@@ -76,7 +76,7 @@ def run_dkl_crown_parallel(region_area, crown_dir, d, mode, dim, region_idx):
     replacement_dataset = "Customized(\"custom_functions\",\"simple_box_data_nD\", x_max = {}, x_min = {})".format(
         x_max, x_min)
 
-    file_name = crown_dir + "/exp_configs/nn_mode_{}_dim_{}.yaml".format(mode, dim)
+    file_name = crown_dir + "/exp_configs/nn_mode_{}_dim_{}_experiment_{}.yaml".format(mode, dim, global_dir_name)
     des_yaml = crown_dir + "/exp_configs/nn_mode_{}_{}_{}.yaml".format(mode, dim, region_idx)
     shutil.copyfile(file_name, des_yaml)
 

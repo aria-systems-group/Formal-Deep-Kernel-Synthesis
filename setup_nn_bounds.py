@@ -46,39 +46,51 @@ experiment_number = int(sys.argv[2])
 # 0. Setup space and dynamics
 # ======================================================================
 
-if experiment_number == 2:
+grid_len = 1
+
+if experiment_number == 1:
+    # 2D experiment, 5 modes, 400 data points per mode
+    global_dir_name = "sys_2d_lin"
+    process_dist = {"mu": [0., 0.], "sig": [0.05, 0.05], "dist": "multi_norm"}
+    unknown_modes_list = [g_lin1, g_lin2, g_lin3]
+    X = {"x1": [-4., 4.], "x2": [-4., 4.]}
+    GP_data_points = 500  # 250
+    nn_epochs = 5000
+    learning_rate = 5e-4
+elif experiment_number == 2:
     # 2D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
+    process_dist = {"mu": [0., 0.], "sig": [0.05, 0.05], "dist": "multi_norm"}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
-    GP_data_points = 200
-elif experiment_number == 1:
-    # 3D experiment, 5 modes, 1000 data points per mode
-    global_dir_name = "sys_3d_"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 1000
+    GP_data_points = 500  #  200
     nn_epochs = 4000
-    epochs = 400
+    epochs = 600
+    grid_len = 0.125
 elif experiment_number == 3:
-    # 3D experiment, 5 modes, 2000 data points per mode
+    # 3D experiment, 5 modes, 1000 data points per mode
     global_dir_name = "sys_3d"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    # GP_data_points = 1000
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     GP_data_points = 2000
     nn_epochs = 4000
-    epochs = 400
+    epochs = 600
+    learning_rate = 1e-4
 elif experiment_number == 4:
-    # 3D experiment, 5 modes, 2000 data points per mode, uses a standard GP rather than a deep kernel
+    # 3D experiment, 5 modes, 1000 data points per mode, uses a standard GP rather than a deep kernel
     use_regular_gp = True
     global_dir_name = "sys_3d_gp"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    # GP_data_points = 1000
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     GP_data_points = 2000
-    epochs = 400
+    epochs = 600
+    learning_rate = 1e-4
 elif experiment_number == 5:
     # 5D experiement, 4 modes, 15000 data points per mode
     global_dir_name = "sys_5d"
@@ -92,16 +104,6 @@ elif experiment_number == 5:
     unsafe_set = [None]
     goal_set = [[[1.5, 2.], [0.5, 2], [-0.4, 0.4], [-0.4, 0.4], [-0.4, 0.4]]]
     region_labels = {"a": goal_set, "b": unsafe_set}
-elif experiment_number == 999:
-    # 3D experiment, 5 modes, 2000 data points per mode
-    global_dir_name = "test_refine"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 1000
-    nn_epochs = 4000
-    epochs = 600  # 400
-    learning_rate = 1e-4
 else:
     exit()
 
@@ -117,7 +119,6 @@ else:
     os.mkdir(global_exp_dir)
 
 # abstraction grid size
-grid_len = 0.125
 grid_size, large_grid = get_grid_info(X, grid_len)
 
 # Neural Network dimensions and training info
@@ -130,6 +131,10 @@ extents = discretize_space_list(X, grid_size)
 filename = global_exp_dir + f"/extents_{refinement}"
 np.save(filename, np.array(extents))
 extents.pop()
+
+if reuse_regions and os.path.exists(global_exp_dir + f"/nn_bounds/linear_bounds_{len(modes)}_0.npy"):
+    print("Using saved DKM data to enforce identical results (i.e. seeding won't change the answer)")
+    exit()
 
 # =====================================================================================
 # 1. Generate training data and learn the functions with deep kernel GPs
@@ -217,7 +222,8 @@ for mode in modes:
 
     if not use_regular_gp:
         lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(extents, mode, out_dim, crown_dir,
-                                                                                     EXPERIMENT_DIR, lin_bounds,
+                                                                                     global_dir_name, EXPERIMENT_DIR,
+                                                                                     lin_bounds,
                                                                                      linear_trans_m, linear_trans_b,
                                                                                      threads=threads,
                                                                                      use_regular_gp=use_regular_gp)
@@ -225,7 +231,8 @@ for mode in modes:
     else:
         if mode == 0:
             lin_bounds, linear_trans_m, linear_trans_b = run_dkl_in_parallel_just_bounds(extents, mode, out_dim,
-                                                                                         crown_dir, EXPERIMENT_DIR,
+                                                                                         crown_dir, global_dir_name,
+                                                                                         EXPERIMENT_DIR,
                                                                                          lin_bounds, linear_trans_m,
                                                                                          linear_trans_b,
                                                                                          threads=threads,
