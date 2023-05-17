@@ -1,7 +1,6 @@
 using PosteriorBounds
 using JuMP, Ipopt
 
-
 function sigma_bnb(gp, x_train, m, n, sigma_prior, x_L, x_U, theta_vec, cK_inv_scaled;
                    max_iterations=10, bound_epsilon=1e-2, min_flag=false)
 

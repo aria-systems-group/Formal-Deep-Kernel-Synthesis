@@ -9,6 +9,7 @@ exp_dir = EXPERIMENT_DIR + experiment_type
 crown_dir = EXPERIMENT_DIR + "/alpha-beta-CROWN/complete_verifier"
 
 reuse_regions = False
+use_regular_gp = False
 threads = int(sys.argv[1])
 experiment_number = int(sys.argv[2])
 refinement = int(sys.argv[3])
@@ -24,7 +25,7 @@ if experiment_number == 1:
     region_labels = {"a": goal_set, "b": unsafe_set}
 elif experiment_number == 2:
     global_dir_name = "sys_2d"
-    process_dist = {"mu": [0., 0.], "sig": [0.05, 0.05], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
     dfa = dict_load(EXPERIMENT_DIR + "/dfa_reach_avoid_complex")
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
@@ -41,10 +42,31 @@ elif experiment_number == 2:
     goal_set = []
     goal_set.extend(goal_a)
     goal_set.extend(goal_c)
+elif experiment_number == 6:
+    # 2D experiment, 4 modes, 200 data points per mode
+    global_dir_name = "sys_2d_gp"
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
+    unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
+    dfa = dict_load(EXPERIMENT_DIR + "/dfa_reach_avoid_complex")
+    X = {"x1": [-2., 2.], "x2": [-2., 2.]}
+    use_regular_gp = True
+    unsafe_set = [[[-1.75, -1.25], [-0.75, 1.0]],
+                  [[-1.0, -0.5], [-1.25, -0.875]],
+                  [[0.5, 1.125], [-1.75, -1.25]],
+                  [[0.75, 1.0], [-0.5, 0.5]],
+                  [[0.75, 1.75], [0.75, 1.75]]]
+    goal_a = [[[-0.75, 0.75], [-0.75, 0.75]]]
+    goal_c = [[[-1.75, 0.0], [-2.0, -1.5]],
+              [[1.125, 2.0], [-1.75, 0.0]],
+              [[-1.25, 0.0], [1.0, 1.875]]]
+    region_labels = {"b": unsafe_set, "a": goal_a, "c": goal_c}
+    goal_set = []
+    goal_set.extend(goal_a)
+    goal_set.extend(goal_c)
 elif experiment_number == 3:
     global_dir_name = "sys_3d"
     dfa = dict_load(EXPERIMENT_DIR + "/dfa_reach_avoid")
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
 
     # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
@@ -59,7 +81,7 @@ elif experiment_number == 3:
 elif experiment_number == 4:
     global_dir_name = "sys_3d_gp"
     dfa = dict_load(EXPERIMENT_DIR + "/dfa_reach_avoid")
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
 
     # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
@@ -111,7 +133,7 @@ filename = global_exp_dir + f"/extents_{refinement}.npy"
 extents = np.load(filename)
 num_states = len(extents) - 1
 states = [i for i in range(num_states)]
-print(f"IMDP will have {num_states} states.")
+print(f"\nIMDP will have {num_states} states.")
 
 file_name = global_exp_dir + f"/transition_probs_{refinement}.pkl"
 reuse_regions = False
@@ -162,6 +184,8 @@ if len(region_labels) > 2:
     print('plotting results')
     q_refine = plot_pimdp_results(res, pimdp, dfa, global_exp_dir, k, refinement, plot_labels, unknown_modes_list,
                                   process_dist, min_threshold=.9, plot_traj=(continue_refine == 0))
+
+    plot_pimdp_probs(res, pimdp, dfa, global_exp_dir, k, refinement, plot_labels)
 else:
     imdp_filepath = global_exp_dir + f"/imdp-{k}_{refinement}.txt"
     # for now just a bounded until of !bUa, phi1 U<k phi2
@@ -195,7 +219,8 @@ if continue_refine == 1:
     # identify which dimensions need split in these extents, do this by checking which dimension has the largest
     # expansion from the NN linearization
     refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, global_dir_name, dim, global_exp_dir,
-                         EXPERIMENT_DIR, nn_bounds_dir, refinement, threshold=1e-5, threads=8, use_regular_gp=False)
+                         EXPERIMENT_DIR, nn_bounds_dir, refinement, threshold=0.125/8., threads=8,
+                         use_regular_gp=use_regular_gp)
     print("Running Julia portion to bound new regions")
 else:
     print("Finished")

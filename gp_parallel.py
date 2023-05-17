@@ -24,15 +24,9 @@ def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
 
     max_out = np.zeros(num_extents)
     min_out = np.zeros(num_extents)
-    res_ = False
     for idx, res in enumerate(results):
         max_out[check_idx[idx]] = res[1]
         min_out[check_idx[idx]] = res[0]
-        if res[2]:
-            res_ = True
-
-    if res_:
-        print(f'index {pre_idx} and mode {mode} has large mean bounds.')
 
     return min_out, max_out
 
@@ -44,7 +38,7 @@ def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
     for dim in range(num_dims):
         possible_intersect[dim] = []
         upper_sig = sig_info[dim][1]  # this is a std deviation
-        upper_sig += sigs[dim]
+        upper_sig += np.sqrt(sigs[dim])
 
         lower_bound = mean_info[dim][0] - what_sig * upper_sig
         upper_bound = mean_info[dim][1] + what_sig * upper_sig
@@ -65,17 +59,12 @@ def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, 
     # check if these two regions intersect
     p_min = 1
     p_max = 1
-    large_mean = False
     for dim in range(num_dims):
         lower_mean = mean_info[dim][0]
         upper_mean = mean_info[dim][1]
 
-        upper_sigma = sig_info[dim][1] + sigs[dim]  # this is a std deviation
-        lower_sigma = sig_info[dim][0] + sigs[dim]
-        if lower_sigma is None:
-            lower_sigma = upper_sigma * .7
-        if lower_sigma > upper_sigma:
-            lower_sigma = upper_sigma * .7
+        upper_sigma = sig_info[dim][1] + np.sqrt(sigs[dim])  # this is a std deviation
+        lower_sigma = sig_info[dim][0]
 
         post_bounds = post_region[dim]
         post_low = post_bounds[0]
@@ -107,9 +96,11 @@ def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, 
 
             if (lower_mean < post_mean) and (upper_mean > post_mean):
                 middle_mean = post_mean
-            elif lower_mean < post_mean:
+            elif upper_mean < post_mean:
+                # upper bound is closer to the center
                 middle_mean = upper_mean
             else:
+                # lower bound is closer to the center
                 middle_mean = lower_mean
 
             p_max *= prob_via_erf(post_up, post_low, middle_mean, lower_sigma)
@@ -130,7 +121,7 @@ def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, 
     if p_max < 1e-4:
         p_max = 0
 
-    return [p_min, p_max, large_mean]
+    return [p_min, p_max]
 
 
 def prob_via_erf(lb, la, mean, sigma):
@@ -184,7 +175,7 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
     # for each region in the refinement list, check which dimension causes the largest expansion across modes
     print("Getting NN bounds for refinement states")
     pool = mp.Pool(threads)
-    dim_list = pool.starmap(dim_checker, [(extents[idx], region_data, modes, idx) for idx in refine_states])
+    dim_list = pool.starmap(dim_checker, [(extents[idx], region_data, modes, idx, use_regular_gp) for idx in refine_states])
 
     # now have which dimensions each region needs to be split across, pull out those extents, split them and rerun crown
     small_extents = pool.starmap(get_new_regions, [(extents[idx], dim_list[i], threshold)
@@ -290,7 +281,7 @@ def refinement_algorithm(refine_states, region_data, extents, modes, crown_dir, 
             np.save(dim_region_filename+f"_these_indices_{refinement+1}", specific_extents)
 
 
-def dim_checker(region, region_data, modes, idx):
+def dim_checker(region, region_data, modes, idx, use_regular_gp):
     x_ranges = [region[k] for k in range(len(region))]
     vertices = list(itertools.product(*x_ranges))
 
@@ -348,7 +339,11 @@ def get_new_regions(old_region, dim_idx, threshold):
         split = 1.0
         if k in dim_idx:
             split = 2.0
-        grid_size[k] = max(grid_len / split, threshold)
+
+        if grid_len/split < threshold:
+            # should only happen if dividing by 2
+            split = 1.0
+        grid_size[k] = grid_len / split
     new_regions = discretize_space_list(region, grid_size, include_space=False)
 
     return new_regions

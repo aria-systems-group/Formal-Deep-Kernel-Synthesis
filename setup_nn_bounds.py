@@ -60,35 +60,46 @@ if experiment_number == 1:
 elif experiment_number == 2:
     # 2D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
-    process_dist = {"mu": [0., 0.], "sig": [0.05, 0.05], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
-    GP_data_points = 500  #  200
-    nn_epochs = 4000
+    GP_data_points = 200
+    nn_epochs = 200
     epochs = 600
-    grid_len = 0.125
+    grid_len = 0.125/2.
+elif experiment_number == 6:
+    # 2D experiment, 4 modes, 200 data points per mode
+    global_dir_name = "sys_2d_gp"
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
+    unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
+    X = {"x1": [-2., 2.], "x2": [-2., 2.]}
+    use_regular_gp = True
+    GP_data_points = 200
+    epochs = 600
+    grid_len = 0.125/2.
 elif experiment_number == 3:
     # 3D experiment, 5 modes, 1000 data points per mode
     global_dir_name = "sys_3d"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     # GP_data_points = 1000
+    # nn_epochs = 4000
     X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 2000
-    nn_epochs = 4000
+    GP_data_points = 1000
+    nn_epochs = 1000
     epochs = 600
     learning_rate = 1e-4
 elif experiment_number == 4:
     # 3D experiment, 5 modes, 1000 data points per mode, uses a standard GP rather than a deep kernel
     use_regular_gp = True
     global_dir_name = "sys_3d_gp"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.05, 0.05, 0.005], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
     # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
     # GP_data_points = 1000
     X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 2000
+    GP_data_points = 1000
     epochs = 600
     learning_rate = 1e-4
 elif experiment_number == 5:

@@ -223,7 +223,8 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                 likelihood = likelihood.cuda()
 
             if process_noise["dist"] == "multi_norm":
-                alpha_ = max(alpha[dim], 5e-3)  # for some reason there are a lot of errors if the noise is seeded low
+                alpha_ = alpha[dim]
+                # alpha_ = max(alpha[dim], 5e-3)  # for some reason there are a lot of errors if the noise is seeded low
             else:
                 alpha_ = alpha
             hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
@@ -627,23 +628,40 @@ def construct_pimdp(dfa, imdp:IMDPModel):
     Pmin_new = lil_matrix(np.zeros([N * size_dfa, M * size_dfa]))
     Pmax_new = lil_matrix(np.zeros([N * size_dfa, M * size_dfa]))
 
+    # n_actions = len(imdp.actions)
+    # for sq in pimdp_states:
+    #     for a in imdp.actions:
+    #         row_idx = sq[0]*size_dfa*n_actions + (sq[1]-1)*n_actions + a
+    #         if sq[1] == sink_state or sq[1] == accept_state:
+    #             col_idx = sq[0] * size_dfa + (sq[1] - 1)
+    #             Pmin_new[row_idx, col_idx] = 1.
+    #             Pmax_new[row_idx, col_idx] = 1.
+    #             continue
+    #
+    #         q_prime = delta_(sq[1], dfa, imdp.labels[sq[0]])
+    #         for sqp in pimdp_states:
+    #             # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
+    #             if sqp[1] in q_prime:
+    #                 col_idx = sqp[0]*size_dfa + (sqp[1] - 1)
+    #                 Pmin_new[row_idx, col_idx] = imdp.Pmin[(sq[0]*n_actions) + a, sqp[0]]
+    #                 Pmax_new[row_idx, col_idx] = imdp.Pmax[(sq[0]*n_actions) + a, sqp[0]]
+
     n_actions = len(imdp.actions)
     for sq in pimdp_states:
         for a in imdp.actions:
             row_idx = sq[0]*size_dfa*n_actions + (sq[1]-1)*n_actions + a
+            if sq[1] == sink_state or sq[1] == accept_state:
+                col_idx = sq[0] * size_dfa + (sq[1] - 1)
+                Pmin_new[row_idx, col_idx] = 1.
+                Pmax_new[row_idx, col_idx] = 1.
+                continue
+
             q_prime = delta_(sq[1], dfa, imdp.labels[sq[0]])
-            for sqp in pimdp_states:
+            for s in imdp.states:
                 # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
-                if sqp[1] in q_prime:
-                    if (sq[1] == sink_state and sqp[1] == sink_state) or \
-                            (sq[1] == accept_state and sqp[1] == accept_state):
-                        col_idx = sq[0]*size_dfa + sq[1]
-                        Pmin_new[row_idx, col_idx] = 1.
-                        Pmax_new[row_idx, col_idx] = 1.
-                    else:
-                        col_idx = sqp[0]*size_dfa + sqp[1]
-                        Pmin_new[row_idx, col_idx] = imdp.Pmin[(sq[0]*n_actions) + a, sqp[0]]
-                        Pmax_new[row_idx, col_idx] = imdp.Pmax[(sq[0]*n_actions) + a, sqp[0]]
+                col_idx = s*size_dfa + (q_prime[0] - 1)
+                Pmin_new[row_idx, col_idx] = imdp.Pmin[(sq[0]*n_actions) + a, s]
+                Pmax_new[row_idx, col_idx] = imdp.Pmax[(sq[0]*n_actions) + a, s]
 
     Pmin_new = Pmin_new.tocsr(copy=True)
     Pmax_new = Pmax_new.tocsr(copy=True)
@@ -839,17 +857,19 @@ def refine_check_pimdp(imdp:IMDPModel, res, q_question, n_best):
         res_row_idx = sq[1]
 
         sat_prob = (res[res_row_idx][3] - res[res_row_idx][2])
-        action = res[res_row_idx][1]
+        # action = res[res_row_idx][1]
+        p_actions = 0
+        for action in imdp.actions:
+            imdp_row_idx = int(extent_state*action_num + action)
+            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
 
-        imdp_row_idx = int(extent_state*action_num + action)
-        theta[idx] = (P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]) * sat_prob
+        theta[idx] = p_actions * sat_prob
 
     n_best = min(n_best, len(q_question))
-    refine_idx = np.sort(np.argsort(theta)[::-1])
+    refine_idx = np.argsort(theta)[::-1][:n_best]
     refine_regions = []
     for i in refine_idx:
         refine_regions.append(q_question[i][0])
-    refine_regions = list(set(refine_regions))[:n_best]
     refine_regions = np.sort(refine_regions)
     return refine_regions
 
@@ -861,16 +881,22 @@ def refine_check(imdp:IMDPModel, res, q_question, n_best):
     P_max_cols = imdp.Pmax.sum(axis=1)
     P_min_cols = imdp.Pmin.sum(axis=1)
     for idx, val in enumerate(q_question):
-        row_idx = int(val*action_num + res[val][1])
-        theta[idx] = (P_max_cols[row_idx, 0] - P_min_cols[row_idx, 0])*(res[val][3] - res[val][2])
+        p_actions = 0
+        for action in imdp.actions:
+            imdp_row_idx = int(val*action_num + action)
+            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
+        theta[idx] = p_actions * (res[val][3] - res[val][2])
+        # row_idx = int(val*action_num + res[val][1])
+        # theta[idx] = (P_max_cols[row_idx, 0] - P_min_cols[row_idx, 0])*(res[val][3] - res[val][2])
 
     n_best = min(n_best, len(q_question))
-    refine_idx = np.sort(np.argsort(theta)[::-1][:n_best])
+    refine_idx = np.argsort(theta)[::-1][:n_best]
     refine_regions = []
     for i in refine_idx:
         refine_regions.append(q_question[i])
     refine_regions = np.sort(refine_regions)
     return refine_regions
+
 
 # =============================================================================================================
 #  Plot IMDP Synthesis Results
@@ -898,7 +924,7 @@ def volumize(region):
 
 
 def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refinement, plot_labels, unknown_dyns,
-                       process_dist, min_threshold=0.8, plot_traj=False):
+                       process_dist, min_threshold=0.8, plot_traj=False, x0=None):
     extents = pimdp.extents
 
     accept_state = dfa["accept"]
@@ -937,25 +963,19 @@ def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refine
         min_prob = res_mat[i][2]
         if sq[1] != 1:
             i += 1
-            if sq[1] != accept_state:
-                if not (max_prob < min_threshold):
-                    q_refine.append([sq[0], i])
             continue
 
         if min_prob >= min_threshold:
             # yay this region satisfied
-            if sq[0] not in sat_regions:
-                sat_volume += volumize(extents[sq[0]])
-                sat_regions.append(sq[0])
-            q_refine.append([sq[0], i])
+            sat_volume += volumize(extents[sq[0]])
+            sat_regions.append(sq[0])
+            # q_refine.append([sq[0], i])
         elif max_prob < min_threshold:
-            if sq[0] not in unsat_regions:
-                unsat_volume += volumize(extents[sq[0]])
-                unsat_regions.append(sq[0])
+            unsat_volume += volumize(extents[sq[0]])
+            unsat_regions.append(sq[0])
         else:
-            if sq[0] not in maybe_regions:
-                maybe_volume += volumize(extents[sq[0]])
-                maybe_regions.append(sq[0])
+            maybe_volume += volumize(extents[sq[0]])
+            maybe_regions.append(sq[0])
             q_refine.append([sq[0], i])
         i += 1
 
@@ -978,23 +998,24 @@ def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refine
                                   (region[0][1], region[1][1]), (region[0][1], region[1][0])])
         x_R, y_R = region_polygon.exterior.xy
         ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.2, fc='r', ec='None')
+        ax.fill(x_R, y_R, alpha=0.5, fc='y', ec='y')
 
     # plot yes in green
-    plotted_list = {}
+    plotted_sat = {}
     for idx in sat_regions:
         region = extents[idx]
 
         x_dims = f"{(region[0], region[1])}"
         if x_dims in list(plotted_list):
+            print("shouldn't be here")
             continue
-        plotted_list[x_dims] = 1
+        plotted_sat[x_dims] = 1
 
         region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
                                   (region[0][1], region[1][1]), (region[0][1], region[1][0])])
         x_R, y_R = region_polygon.exterior.xy
         ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.2, fc='g', ec='None')
+        ax.fill(x_R, y_R, alpha=0.5, fc='g', ec='g')
 
     goal_set = plot_labels['goal']
     unsafe_set = plot_labels['obs']
@@ -1024,22 +1045,27 @@ def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refine
 
         np.random.seed(0)
         # pick a random sat region, get a random state in that region and evolve traj until it's accepting
-        for k in range(3):
+        for k in range(2):
             rand_idx = np.random.randint(0, len(sat_regions))
             start_idx = sat_regions[rand_idx]
-            dfa_state = 1
-            sq = (start_idx, dfa_state)
+            q_init = delta_(1, dfa, pimdp.labels[start_idx])
+            sq = (start_idx, q_init[0])
             start_region = extents[start_idx]
-            x = [np.random.uniform(start_region[k][0], start_region[k][1]) for k in range(len(start_region))]
-            x = np.array(x)
+            if x0 is not None:
+                x = x0[k]
+            else:
+                x = [np.random.uniform(start_region[k][0], start_region[k][1]) for k in range(len(start_region))]
+                x = np.array(x)
 
-            traj = [x]
+            print(np.shape(x))
+            traj_x = [x[0]]
+            traj_y = [x[1]]
             # find what action this sq uses, evolve traj, find which extent it's in and repeat
             sig = process_dist["sig"]
             steps = 0
-            while sq[1] != accept_state:
+            while True:
                 i = pimdp.states.index(sq)
-                action = res_mat[i][1]
+                action = int(res_mat[i][1])
                 true_dyn = unknown_dyns[action]
                 x_plus = true_dyn(x)
                 noise = np.random.multivariate_normal(process_dist["mu"], np.diag(sig)).transpose()
@@ -1051,20 +1077,105 @@ def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refine
 
                 # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
                 if next_extent is False:
+                    print('Not in an extent...')
+                    print(x_plus)
                     break
 
                 sq = (next_extent, dfa_state)
+                if sq[1] == accept_state:
+                    break
                 x = x_plus
-                traj.append(x)
+                traj_x.append(x[0])
+                traj_y.append(x[1])
                 steps += 1
                 if steps > 20:
                     break
-
-            plt.plot(traj[0, :], traj[1, :], 'ko--')
+            if k == 0:
+                plt.plot(traj_x, traj_y, 'bo--')
+            else:
+                plt.plot(traj_x, traj_y, 'ko--')
 
         plt.savefig(imdp_dir + f'/traj_{k}_{refinement}.png')
 
     return q_refine
+
+
+def plot_pimdp_probs(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refinement, plot_labels):
+    extents = pimdp.extents
+
+    accept_state = dfa["accept"]
+
+    imdp_dir = global_exp_dir + f"/imdp_{k}"
+    if not os.path.isdir(imdp_dir):
+        os.mkdir(imdp_dir)
+
+    extent_len = len(extents) - 1
+    domain = extents[extent_len]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2)
+
+    Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
+                              (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])
+    x_X, y_X = Domain_Polygon.exterior.xy
+    ax1.fill(x_X, y_X, alpha=1, fc='w', ec='k')
+    ax2.fill(x_X, y_X, alpha=1, fc='w', ec='k')
+
+    # figure out how to plot from the res mat
+
+    maybe_regions = []
+
+    i = 0
+    for sq in pimdp.states:
+        if sq[1] != 1:
+            i += 1
+            continue
+
+        maybe_regions.append((sq[0], i))
+        i += 1
+
+    plotted_list = {}
+    for idx in maybe_regions:
+        region = extents[idx[0]]
+        i = idx[1]
+        max_prob = res_mat[i][3]
+        min_prob = res_mat[i][2]
+
+        x_dims = f"{(region[0], region[1])}"
+        if x_dims in list(plotted_list):
+            continue
+        plotted_list[x_dims] = 1
+
+        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
+                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
+        x_R, y_R = region_polygon.exterior.xy
+        ax1.fill(x_R, y_R, alpha=max_prob, fc='g', ec='None')
+        ax2.fill(x_R, y_R, alpha=min_prob, fc='r', ec='None')
+
+    goal_set = plot_labels['goal']
+    unsafe_set = plot_labels['obs']
+
+    for area in goal_set:
+        region_polygon = Polygon(
+            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
+             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
+        x_R, y_R = region_polygon.exterior.xy
+        ax1.fill(x_R, y_R, alpha=1, fc='None', ec='k')
+        ax2.fill(x_R, y_R, alpha=1, fc='None', ec='k')
+
+    for area in unsafe_set:
+        if area is None:
+            continue
+        region_polygon = Polygon(
+            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
+             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
+        x_R, y_R = region_polygon.exterior.xy
+        ax1.fill(x_R, y_R, alpha=1, fc='k', ec='k')
+        ax2.fill(x_R, y_R, alpha=1, fc='k', ec='k')
+
+    plt.xlabel('$x_{1}$', fontdict={"size": 15})
+    plt.ylabel('$x_{2}$', fontdict={"size": 15})
+    plt.show(block=False)
+    plt.savefig(imdp_dir + f'/synthesis_bounds_{k}_{refinement}.png')
 
 
 def plot_verification_results(res_mat, imdp:IMDPModel, global_exp_dir, k, refinement, region_labels, unknown_dyns,
@@ -1106,7 +1217,7 @@ def plot_verification_results(res_mat, imdp:IMDPModel, global_exp_dir, k, refine
             # yay this region satisfied
             sat_volume += volumize(extents[i])
             sat_regions.append(i)
-            q_refine.append(i)
+            # q_refine.append(i)
         elif max_prob < min_threshold:
             unsat_volume += volumize(extents[i])
             unsat_regions.append(i)

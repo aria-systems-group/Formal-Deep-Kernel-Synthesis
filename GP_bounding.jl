@@ -1,4 +1,5 @@
 using Distributed
+using SparseArrays
 
 args = ARGS
 addprocs(parse(Int, args[1]))
@@ -7,6 +8,7 @@ addprocs(parse(Int, args[1]))
 using PyCall
 using SharedArrays
 @everywhere include("quad_prog_bnb.jl")
+include("imdp_construction.jl")
 
 @pyimport numpy
 
@@ -19,12 +21,20 @@ refinement = parse(Int, args[3])
 
 if experiment_number == 1
     global_dir_name = "sys_2d_lin"
+    dyn_noise = [0.05, 0.05]
 elseif experiment_number == 2
     global_dir_name = "sys_2d"
+    dyn_noise = [0.01, 0.01]
+    dyn_noise = [0.0001, 0.0001]
 elseif experiment_number == 3
     global_dir_name = "sys_3d"
+    dyn_noise = [0.01, 0.01, 0.001]
 elseif experiment_number == 4
     global_dir_name = "sys_3d_gp"
+    dyn_noise = [0.01, 0.01, 0.001]
+elseif experiment_number == 6
+    global_dir_name = "sys_2d_gp"
+    dyn_noise = [0.0001, 0.0001]
 end
 
 global_exp_dir = exp_dir * "/" * global_dir_name
@@ -35,8 +45,6 @@ num_modes = general_data[1]
 num_dims = general_data[2]
 num_sub_regions = general_data[3]
 num_regions = general_data[4]  # this only matters the first time here, won't be used during refinements
-
-dyn_noise = [0.05, 0.05, 0.005]
 
 # =====================================================================================
 # 3. Use NN posteriors as input spaces for the GP and get bounds on that
@@ -96,6 +104,7 @@ for mode in 1:num_modes
 
                 # parallelize getting mean bounds and variance bounds
                  @sync @distributed for idx in specific_extents
+                    # need distributed here because it is significant computation, threading is inefficient
                     x_L = linear_bounds[idx+1, 1, :]
                     x_U = linear_bounds[idx+1, 2, :]
 
@@ -116,7 +125,7 @@ for mode in 1:num_modes
 
                     # get upper bounds on variance
                     sig_check = sig_bound[idx+1, dim, 2]
-                    if refinement > 0 && sig_check <= dim_sig
+                    if refinement > 0 && sig_check <= 0*sqrt(dim_sig)
                         # if previous sigma bounds were already small, don't waste time finding better ones
                         sig_ = sig_check
                     else
@@ -130,7 +139,7 @@ for mode in 1:num_modes
                         if abs(sig_-sig_low) > sqrt(1e-3)
                             # this means it didn't converge properly, use expensive quadratic program to find solution
                             outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
-                                                max_iterations=20, bound_epsilon=1e-2)
+                                                max_iterations=20, bound_epsilon=sqrt(1e-3))
 
                             sig_ = outputs[3]
                         end
@@ -150,4 +159,13 @@ for mode in 1:num_modes
     numpy.save(global_exp_dir*"/complete_$mode" * "_$refinement", 1)
 end
 
-@info "Finished bounding the GPs"
+@info "Finished bounding the GPs, getting transition probabilities"
+
+# trans_probs_runtime = @elapsed begin
+# extents = numpy.load(global_exp_dir * "/extents_$refinement.npy")
+# minPrs, maxPrs = imdp_probs(extents, dyn_noise, global_exp_dir, refinement, num_modes, num_regions, num_dims)
+# @info "Finished getting transition probabilities in $trans_probs_runtime seconds"
+#
+# numpy.save(global_exp_dir*"/transition_probs_min_$refinement.npy", minPrs)
+# numpy.save(global_exp_dir*"/transition_probs_max_$refinement.npy", maxPrs)
+
