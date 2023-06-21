@@ -56,10 +56,8 @@ Advances in Neural Information Processing Systems, vol. 34, 2021.
 [3] H. Zhang, T.-W. Weng, P.-Y. Chen, C.-J. Hsieh, and L. Daniel,
 “Efficient neural network robustness certification with general
 activation functions,” Advances in Neural Information Processing
-Systems, vol. 31, pp. 4939–4948, 2018. [Online]. Available: https:
-//arxiv.org/pdf/1811.00866.pdf
+Systems, vol. 31, pp. 4939–4948, 2018. [Online]. Available: https://arxiv.org/pdf/1811.00866.pdf
 
 [4] H. Zhang, S. Wang, K. Xu, L. Li, B. Li, S. Jana, C.-J. Hsieh, and
-J. Z. Kolter, “General cutting planes for bound-propagation-based neu-
-ral network verification,” Advances in Neural Information Processing
+J. Z. Kolter, “General cutting planes for bound-propagation-based neural network verification,” Advances in Neural Information Processing
 Systems, 2022.
