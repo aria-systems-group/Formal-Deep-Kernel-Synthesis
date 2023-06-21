@@ -2,7 +2,7 @@
 
 This code makes use of the α,β-CROWN verifier which is developed by a team from CMU, UCLA, Drexel University, Columbia University and UIUC [1, 2, 3, 4]. The source code can be found here: https://github.com/Verified-Intelligence/alpha-beta-CROWN, their README file has been included in the folder alpha-beta-CROWN/.
 
-Some modifications have been made from their main branch to produce needed outputs, hence the inclusion of the foler here.
+Some modifications have been made from their main branch to produce needed outputs, hence the inclusion of the folder here.
 
 
 This also makes use of the PosteriorBounds.jl repo [5], which is automatically added to the Julia package manager via juliacall.
@@ -29,6 +29,8 @@ They should be added inside the conda environment.
 pkg> add JuMP
 pkg> add Ipopt
 pkg> add PyCall
+pkg> add SpecialFunctions
+pkg> add Plots
 pkg> add https://github.com/aria-systems-group/PosteriorBounds.jl
 ```
 
