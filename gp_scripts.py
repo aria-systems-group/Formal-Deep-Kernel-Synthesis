@@ -21,8 +21,8 @@ def loss_function_smooth(unknown_dyn_model, y_data, x_data):
     return loss
 
 
-def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, random_seed=20, good_loss=0.1,
-                            epochs=10000, lr=1e-3):
+def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, random_seed=20,
+                            epochs=10000, lr=1e-3, use_scaling=False):
 
     if use_relu:
         if num_layers == 3:
@@ -44,8 +44,9 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
 
     x_train = all_data[mode][0]
     y_train = all_data[mode][1]
-    # n_samples = int(np.shape(x_train)[1]/10.)
     n_samples = int(np.shape(x_train)[1]/15.)
+
+    scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(random_seed)
@@ -59,26 +60,56 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     print("Training Neural Network on generated data for mode {}...".format(mode+1))
     for t in range(epochs):
         # Forward pass: compute predicted y by passing x to the model.
-        # y_predict = feature_extractor(x_data)
-        # loss = loss_fn(y_predict, y_data)
-        # get minibatch data, ~ 10% of the data
+        # get minibatch data, ~ 15% of the data
         perm = torch.randperm(y_data.size(0))
         idx = perm[:n_samples]
         y_mini = y_data[idx]
         x_mini = x_data[idx]
+
+        if use_scaling:
+            # y_mini = scaling_fnc_mkII(x_mini)
+            # y_mini = scaling_fnc_mkII(y_mini)
+            # y_mini = scale_to_bounds(x_mini)
+            y_mini = scale_to_bounds(y_mini)
+
         # Compute and print loss.
         loss = loss_function_smooth(feature_extractor, y_mini, x_mini)
 
-        # if t % 500 == 499:
-        #     print(t, loss.item())
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # if loss.item() < good_loss:
-        #     # print(t, loss.item())
-        #     break
 
     feature_extractor.to(torch.device('cpu'))
+
+
+def scaling_fnc(y_in):
+
+    scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
+    M, N = np.shape(y_in)
+    # scale each dimension, rather than the whole input
+    y_out = torch.clone(y_in)
+    for n in range(N):
+        y_out[:, n] = scale_to_bounds(y_in[:, n])
+
+    return y_out
+
+
+def scaling_fnc_mkII(y_in):
+
+    M, N = np.shape(y_in)
+    # scale each dimension, rather than the whole input
+    y_out = torch.clone(y_in)
+    idx = 0
+    for n in range(N):
+        if idx == 0:
+            scale = 10.
+        elif idx == 1:
+            scale = 2.
+        else:
+            scale = 0.5
+        y_out[:, n] = y_in[:, n]/scale
+
+    return y_out
 
 
 def set_feature_extractor(use_relu, num_layers, network_dims, random_seed=20):
@@ -173,7 +204,7 @@ class DeepKernelGP(gpytorch.models.ExactGP):
 
 def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
-                               epochs=10000, nn_lr=1e-3, use_regular_gp=False):
+                               epochs=10000, nn_lr=1e-3, use_regular_gp=False, use_scaling=False):
     # this function trains either a standard se_kernel GP (if use_regular_gp=True) or a deep kernel model
     # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
     # The models are trained on local data sets to reduce computational load in the future
@@ -185,8 +216,8 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
     if not use_regular_gp:
         # train the NN with all the data
-        train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed, good_loss=0.1,
-                                epochs=epochs, lr=nn_lr)
+        train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed,
+                                epochs=epochs, lr=nn_lr, use_scaling=use_scaling)
 
     # Splitting data into desired regions for localization
     local_regions = discretize_space_list(domain, grid_size, include_space=False)
@@ -224,7 +255,14 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
             if process_noise["dist"] == "multi_norm":
                 alpha_ = alpha[dim]
-                # alpha_ = max(alpha[dim], 5e-3)  # for some reason there are a lot of errors if the noise is seeded low
+                if "theta_dim" in list(process_noise):
+                    if dim in process_noise["theta_dim"]:
+                        # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
+                        if len(domain) == 3:
+                            alpha_ = max(alpha[dim], 0.0075)
+                        else:
+                            alpha_ = max(alpha[dim], 0.005)
+                            alpha_ = max(alpha[dim], 0.01)
             else:
                 alpha_ = alpha
             hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
@@ -752,7 +790,7 @@ def bounded_until(imdp:IMDPModel, phi1, phi2, k, imdp_filepath, synthesis_flag=F
     # Do verification or synthesis
     if synthesis_flag:
         print('Running Synthesis')
-        result_mat = run_imdp_synthesis(imdp_filepath, k, mode1="maximize")
+        result_mat = run_imdp_synthesis(imdp_filepath, k, mode1="maximize", mode2="pessimistic")
     else:
         print('Running Verification')
         result_mat = run_imdp_synthesis(imdp_filepath, k, mode1="minimize")
@@ -1007,7 +1045,6 @@ def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refine
 
         x_dims = f"{(region[0], region[1])}"
         if x_dims in list(plotted_list):
-            print("shouldn't be here")
             continue
         plotted_sat[x_dims] = 1
 
@@ -1149,7 +1186,7 @@ def plot_pimdp_probs(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refineme
                                   (region[0][1], region[1][1]), (region[0][1], region[1][0])])
         x_R, y_R = region_polygon.exterior.xy
         ax1.fill(x_R, y_R, alpha=max_prob, fc='g', ec='None')
-        ax2.fill(x_R, y_R, alpha=min_prob, fc='r', ec='None')
+        ax2.fill(x_R, y_R, alpha=min_prob, fc='g', ec='None')
 
     goal_set = plot_labels['goal']
     unsafe_set = plot_labels['obs']
@@ -1172,8 +1209,9 @@ def plot_pimdp_probs(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refineme
         ax1.fill(x_R, y_R, alpha=1, fc='k', ec='k')
         ax2.fill(x_R, y_R, alpha=1, fc='k', ec='k')
 
-    plt.xlabel('$x_{1}$', fontdict={"size": 15})
-    plt.ylabel('$x_{2}$', fontdict={"size": 15})
+    # plt.xlabel('$x_{1}$', fontdict={"size": 15})
+    # plt.ylabel('$x_{2}$', fontdict={"size": 15})
+    ax2.title.set_text('min prob')
     plt.show(block=False)
     plt.savefig(imdp_dir + f'/synthesis_bounds_{k}_{refinement}.png')
 

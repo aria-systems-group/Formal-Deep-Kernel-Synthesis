@@ -213,10 +213,13 @@ def get_grid_info(X, grid_len):
     if len(X) < 3:
         grid_size = {k: grid_len for k in list(X)}
     elif len(X) == 3:
-        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.1}
-        # grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.1}
+        # grid_size = {"x1": grid_len, "x2": grid_len, "x3": 4.*grid_len}
+        # grid_size = {"x1": 0.25, "x2": 0.125, "x3": 0.05}
+        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
+        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.1}
     elif len(X) == 5:
-        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.2, "x4": 0.2, "x5": 0.2}
+        # grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.3, "x4": 0.3, "x5": 0.3}
+        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.15, "x4": 0.15, "x5": 0.15}
     else:
         exit()
 
@@ -225,6 +228,7 @@ def get_grid_info(X, grid_len):
 # ======================================================================
 #  Save and load data functions
 # ======================================================================
+
 
 def dict_save(file_name, dict_to_save):
     file_ = open(file_name, "wb")

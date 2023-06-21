@@ -34,6 +34,7 @@ num_layers = 2
 random_Seed = 11
 use_reLU = True
 known_fnc = None
+use_scaling = False
 nn_epochs = 1000
 nn_lr = 1e-4
 
@@ -48,16 +49,19 @@ experiment_number = int(sys.argv[2])
 
 grid_len = 1
 
-if experiment_number == 1:
+if experiment_number == 0:
     # 2D experiment, 5 modes, 400 data points per mode
     global_dir_name = "sys_2d_lin"
-    process_dist = {"mu": [0., 0.], "sig": [0.05, 0.05], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0.], "sig": [0.01, 0.01], "dist": "multi_norm"}
     unknown_modes_list = [g_lin1, g_lin2, g_lin3]
     X = {"x1": [-4., 4.], "x2": [-4., 4.]}
-    GP_data_points = 500  # 250
-    nn_epochs = 5000
+    # GP_data_points = 500  # 250
+    # nn_epochs = 5000
+    GP_data_points = 200  # 250
+    nn_epochs = 200
     learning_rate = 5e-4
-elif experiment_number == 2:
+    grid_len = 0.125
+elif experiment_number == 1:
     # 2D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
     process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
@@ -66,8 +70,9 @@ elif experiment_number == 2:
     GP_data_points = 200
     nn_epochs = 200
     epochs = 600
-    grid_len = 0.125/2.
-elif experiment_number == 6:
+    grid_len = 0.125
+    use_scaling = True
+elif experiment_number == 2:
     # 2D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d_gp"
     process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
@@ -76,45 +81,78 @@ elif experiment_number == 6:
     use_regular_gp = True
     GP_data_points = 200
     epochs = 600
-    grid_len = 0.125/2.
+    grid_len = 0.125
 elif experiment_number == 3:
-    # 3D experiment, 5 modes, 1000 data points per mode
+    # 3D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_3d"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    # GP_data_points = 1000
-    # nn_epochs = 4000
-    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 1000
-    nn_epochs = 1000
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.01], "dist": "multi_norm"}
+    unknown_modes_list = [g_2d_as_3d_mode0, g_2d_as_3d_mode1, g_2d_as_3d_mode2, g_2d_as_3d_mode3]
+    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-2., 2.]}
+    GP_data_points = 200
+    nn_epochs = 200
     epochs = 600
-    learning_rate = 1e-4
+    grid_len = 0.125
 elif experiment_number == 4:
-    # 3D experiment, 5 modes, 1000 data points per mode, uses a standard GP rather than a deep kernel
-    use_regular_gp = True
+    # 3D experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_3d_gp"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.001], "dist": "multi_norm"}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    # X = {"x1": [0., 5.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    # GP_data_points = 1000
-    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 1000
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.01], "dist": "multi_norm"}
+    unknown_modes_list = [g_2d_as_3d_mode0, g_2d_as_3d_mode1, g_2d_as_3d_mode2, g_2d_as_3d_mode3]
+    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-2., 2.]}
+    use_regular_gp = True
+    GP_data_points = 200
     epochs = 600
-    learning_rate = 1e-4
+    grid_len = 0.125
 elif experiment_number == 5:
-    # 5D experiement, 4 modes, 15000 data points per mode
+    # 5D experiment, 4 modes, 1000 data points per mode
     global_dir_name = "sys_5d"
     unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2, g_5d_mode3]
-    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.4, 0.4], "x4": [-0.4, 0.4], "x5": [-0.4, 0.4]}
-    GP_data_points = 15000
+    process_dist = {"mu": [0., 0., 0., 0., 0.], "sig": [0.01, 0.01, 0.0001, 0.0001, 0.0001], "dist": "multi_norm",
+                    "theta_dim": [2, 3, 4]}
+    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.3, 0.3], "x4": [-0.3, 0.3], "x5": [-0.3, 0.3]}
+    GP_data_points = 1000
     width_1 = 128
-    nn_epochs = 10000
-    epochs = 800
-    specification = "!b U a"
-    unsafe_set = [None]
-    goal_set = [[[1.5, 2.], [0.5, 2], [-0.4, 0.4], [-0.4, 0.4], [-0.4, 0.4]]]
-    region_labels = {"a": goal_set, "b": unsafe_set}
+    width_2 = 128
+    num_layers = 2
+    use_scaling = True
+    nn_epochs = 4000
+elif experiment_number == 30:
+    # 3D experiment, 5 modes, 1000 data points per mode
+    global_dir_name = "dubins_sys"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    GP_data_points = 400
+    nn_epochs = 3000
+    width_1 = 128
+    width_2 = 128
+    num_layers = 2
+    epochs = 600
+    use_scaling = True
+    learning_rate = 1e-4
+elif experiment_number == 40:
+    # 3D experiment, 5 modes, 1000 data points per mode, uses a standard GP rather than a deep kernel
+    use_regular_gp = True
+    global_dir_name = "dubins_sys_gp"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    GP_data_points = 400
+    epochs = 600
+    learning_rate = 1e-4
+elif experiment_number == 60:
+    # 3D experiment, 5 modes, 1000 data points per mode
+    global_dir_name = "dubins_sys_expanded"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
+    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
+    GP_data_points = 400
+    nn_epochs = 3000
+    width_1 = 128
+    width_2 = 128
+    num_layers = 2
+    epochs = 600
+    use_scaling = True
+    learning_rate = 1e-4
 else:
     exit()
 
@@ -199,7 +237,8 @@ for mode in modes:
                                                                              training_iter=epochs,
                                                                              random_seed=(mode + 2) * random_Seed,
                                                                              epochs=nn_epochs, nn_lr=nn_lr,
-                                                                             use_regular_gp=use_regular_gp)
+                                                                             use_regular_gp=use_regular_gp,
+                                                                             use_scaling=use_scaling)
 
         print(f'Finished deep kernel regression for mode {mode+1}\n')
         dkl_save(file_name, unknown_dyn_gp, mode, True)

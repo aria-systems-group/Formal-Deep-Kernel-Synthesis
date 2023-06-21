@@ -1,26 +1,8 @@
 from import_script import *
 
 # ======================================================================
-# 1. Define dynamics function
+# Define dynamics functions
 # ======================================================================
-
-
-def g_lin1(x):
-    A = np.array([[0.9, -0.4], [0.4, 0.5]])
-    result = A @ x
-    return result
-
-
-def g_lin2(x):
-    A = np.array([[0.8, 0.5], [0, 0.5]])
-    result = A @ x
-    return result
-
-
-def g_lin3(x):
-    A = np.array([[0.5, 0], [-0.5, 0.8]])
-    result = A @ x
-    return result
 
 
 def g_nonlinear1(x):
@@ -94,33 +76,116 @@ def crazy_1d(x):
 def g_x_sin(x):
     return x*np.sin(x)
 
+# ==================================================================================================================== #
+# 2D linear
+# ==================================================================================================================== #
+
+
+def g_lin1(x):
+    A = np.array([[0.9, -0.4], [0.4, 0.5]])
+    result = A @ x
+    return result
+
+
+def g_lin2(x):
+    A = np.array([[0.8, 0.5], [0, 0.5]])
+    result = A @ x
+    return result
+
+
+def g_lin3(x):
+    A = np.array([[0.5, 0], [-0.5, 0.8]])
+    result = A @ x
+    return result
+
+
+# ==================================================================================================================== #
+# 3D nonlinear
+# ==================================================================================================================== #
+
+def g_2d_as_3d_mode0(x):
+    result = [x[0] + 0.5 + 0.2*np.sin(x[1]),
+              x[1] + 0.4*np.cos(x[0]),
+              0.75*x[2] + 0.1*np.cos(x[0])]
+    return result
+
+
+def g_2d_as_3d_mode1(x):
+    result = [x[0] + -0.5 + 0.2*np.sin(x[1]),
+              x[1] + 0.4*np.cos(x[0]),
+              0.75*x[2] + 0.1*np.cos(x[0])]
+    return result
+
+
+def g_2d_as_3d_mode2(x):
+    result = [x[0] + 0.4*np.cos(x[1]),
+              x[1] + 0.5 + 0.2*np.sin(x[0]),
+              0.75*x[2] + 0.1*np.cos(x[0])]
+    return result
+
+
+def g_2d_as_3d_mode3(x):
+    result = [x[0] + 0.4*np.cos(x[1]),
+              x[1] + -0.5 + 0.2*np.sin(x[0]),
+              0.75*x[2] + 0.1*np.cos(x[0])]
+    return result
+
+# ==================================================================================================================== #
+# 2D nonlinear
+# ==================================================================================================================== #
+
+
+trust_1 = False
+
 
 def g_2d_mode0(x):
-    result = [x[0] + 0.25 + 0.05*np.sin(x[1]),
-              x[1] + 0.1*np.cos(x[0])]
+    if trust_1:
+        result = [x[0] + 0.25 + 0.05*np.sin(x[1]),
+                  x[1] + 0.1*np.cos(x[0])]
+    else:
+        result = [x[0] + 0.5 + 0.2*np.sin(x[1]),
+                  x[1] + 0.4*np.cos(x[0])]
     return result
 
 
 def g_2d_mode1(x):
-    result = [x[0] + -0.25 + 0.05*np.sin(x[1]),
-              x[1] + 0.1*np.cos(x[0])]
+    if trust_1:
+        result = [x[0] + -0.25 + 0.05*np.sin(x[1]),
+                  x[1] + 0.1*np.cos(x[0])]
+    else:
+        result = [x[0] + -0.5 + 0.2*np.sin(x[1]),
+                  x[1] + 0.4*np.cos(x[0])]
     return result
 
 
 def g_2d_mode2(x):
-    result = [x[0] + 0.1*np.cos(x[1]),
-              x[1] + 0.25 + 0.05*np.sin(x[0])]
+    if trust_1:
+        result = [x[0] + 0.1*np.cos(x[1]),
+                  x[1] + 0.25 + 0.05*np.sin(x[0])]
+    else:
+        result = [x[0] + 0.4*np.cos(x[1]),
+                  x[1] + 0.5 + 0.2*np.sin(x[0])]
     return result
 
 
 def g_2d_mode3(x):
-    result = [x[0] + 0.1*np.cos(x[1]),
-              x[1] + -0.25 + 0.05*np.sin(x[0])]
+    if trust_1:
+        result = [x[0] + 0.1*np.cos(x[1]),
+                  x[1] + -0.25 + 0.05*np.sin(x[0])]
+    else:
+        result = [x[0] + 0.4*np.cos(x[1]),
+                  x[1] + -0.5 + 0.2*np.sin(x[0])]
     return result
+
+# ==================================================================================================================== #
+# 3D dubins car
+# ==================================================================================================================== #
 
 
 dubins_ts = 0.1
-# print(f'Dubins Ts = {dubins_ts}')
+# dubins_ts = 0.05
+
+
 def g_3d_mode1(xs, Ts=dubins_ts):
     u = 10
     omega = 5
@@ -198,8 +263,10 @@ def g_3d_mode7(xs, Ts=dubins_ts):
     return result
 
 
-def known_part_3d(x):
-    return x
+
+# ==================================================================================================================== #
+# 4D unicycle
+# ==================================================================================================================== #
 
 
 def g_unicycle_mode0(x):
@@ -639,7 +706,7 @@ def known_part(x):
 
 def generate_training_data(unknown_fnc, domain, data_num, known_fnc=None, random_seed=11, n_dims_out=-1,
                            process_dist=None, measurement_dist=None):
-    # This function generates i.i.d. data points across the domain and adds random noise from a specified distribution
+    # This function generates i.i.d. data points across the domain and adds noise from a specified distribution
     f_sub = unknown_fnc
 
     n_dims_in = len(domain)

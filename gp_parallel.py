@@ -291,8 +291,6 @@ def dim_checker(region, region_data, modes, idx, use_regular_gp):
         lin_transform = region_data[mode][2][idx]
         lA = lin_transform[0]
         uA = lin_transform[1]
-        # l_bias = lin_transform[2]
-        # u_bias = lin_transform[3]
 
         v_low = []
         v_up = []
