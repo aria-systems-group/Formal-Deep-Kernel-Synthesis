@@ -54,9 +54,39 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
 
     if prob_plots
         # Plot the maximum probabilities
-        skips = 1
-        for j in 1:skips
-            these_thetas = j:skips:num_regions+1
+        if num_dims == 3
+            skips = 20
+            for j in 1:skips
+                these_thetas = j:skips:num_regions+1
+                plt_max = plot(aspect_ratio=1,
+                            size=(300,300), dpi=300,
+                            xlims=[minx, maxx], ylims=[miny, maxy],
+                            xtickfont=font(10),
+                            ytickfont=font(10),
+                            titlefont=font(10),
+                            xticks = [minx, 0, maxx],
+                            yticks = [miny, 0, maxy],
+                            grid=false)
+                [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in these_thetas]
+                plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
+                savefig(plt_max, plot_dir * "/max_prob_t$(j).png")
+
+                # Plot the minimum probabilities
+                plt_min = plot(aspect_ratio=1,
+                            size=(300,300), dpi=300,
+                            xlims=[minx, maxx], ylims=[miny, maxy],
+                            xtickfont=font(10),
+                            ytickfont=font(10),
+                            titlefont=font(10),
+                            xticks = [minx, 0, maxx],
+                            yticks = [miny, 0, maxy],
+                            grid=false,
+                            backgroundcolor=128)
+                [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in these_thetas]
+                plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
+                savefig(plt_min, plot_dir * "/min_prob_t$(j).png")
+            end
+        else
             plt_max = plot(aspect_ratio=1,
                         size=(300,300), dpi=300,
                         xlims=[minx, maxx], ylims=[miny, maxy],
@@ -66,9 +96,9 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
                         xticks = [minx, 0, maxx],
                         yticks = [miny, 0, maxy],
                         grid=false)
-            [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] # these_thetas]  #
+            [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
             plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-            savefig(plt_max, plot_dir * "/max_prob_t$(j).png")
+            savefig(plt_max, plot_dir * "/max_prob.png")
 
             # Plot the minimum probabilities
             plt_min = plot(aspect_ratio=1,
@@ -81,9 +111,9 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
                         yticks = [miny, 0, maxy],
                         grid=false,
                         backgroundcolor=128)
-            [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] # these_thetas]  #
+            [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
             plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-            savefig(plt_min, plot_dir * "/min_prob_t$(j).png")
+            savefig(plt_min, plot_dir * "/min_prob.png")
         end
     end
 

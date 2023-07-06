@@ -24,7 +24,7 @@ crown_dir = EXPERIMENT_DIR + "/alpha-beta-CROWN/complete_verifier"
 reuse_regions = False
 use_regular_gp = False
 
-epochs = 800
+epochs = 400
 learning_rate = 0.001
 measurement_dist = None
 process_dist = {"sig": 0.01, "dist": "normal"}
@@ -50,19 +50,17 @@ experiment_number = int(sys.argv[2])
 grid_len = 1
 
 if experiment_number == 0:
-    # 2D experiment, 5 modes, 400 data points per mode
+    # 2D linear experiment, 3 modes, 200 data points per mode
     global_dir_name = "sys_2d_lin"
     process_dist = {"mu": [0., 0.], "sig": [0.01, 0.01], "dist": "multi_norm"}
     unknown_modes_list = [g_lin1, g_lin2, g_lin3]
     X = {"x1": [-4., 4.], "x2": [-4., 4.]}
-    # GP_data_points = 500  # 250
-    # nn_epochs = 5000
-    GP_data_points = 200  # 250
+    GP_data_points = 200
     nn_epochs = 200
     learning_rate = 5e-4
     grid_len = 0.125
 elif experiment_number == 1:
-    # 2D experiment, 4 modes, 200 data points per mode
+    # 2D nonlinear dkl experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
     process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
@@ -71,9 +69,9 @@ elif experiment_number == 1:
     nn_epochs = 200
     epochs = 600
     grid_len = 0.125
-    use_scaling = True
+    # use_scaling = True
 elif experiment_number == 2:
-    # 2D experiment, 4 modes, 200 data points per mode
+    # 2D nonlinear gp experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d_gp"
     process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
@@ -103,13 +101,13 @@ elif experiment_number == 4:
     epochs = 600
     grid_len = 0.125
 elif experiment_number == 5:
-    # 5D experiment, 4 modes, 1000 data points per mode
+    # 5D experiment, 3 modes, 1000 data points per mode
     global_dir_name = "sys_5d"
-    unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2, g_5d_mode3]
+    unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2]  # , g_5d_mode3]
     process_dist = {"mu": [0., 0., 0., 0., 0.], "sig": [0.01, 0.01, 0.0001, 0.0001, 0.0001], "dist": "multi_norm",
                     "theta_dim": [2, 3, 4]}
     X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.3, 0.3], "x4": [-0.3, 0.3], "x5": [-0.3, 0.3]}
-    GP_data_points = 1000
+    GP_data_points = 250
     width_1 = 128
     width_2 = 128
     num_layers = 2
@@ -120,7 +118,7 @@ elif experiment_number == 30:
     global_dir_name = "dubins_sys"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
+    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
     GP_data_points = 400
     nn_epochs = 3000
     width_1 = 128
@@ -142,7 +140,8 @@ elif experiment_number == 40:
 elif experiment_number == 60:
     # 3D experiment, 5 modes, 1000 data points per mode
     global_dir_name = "dubins_sys_expanded"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
+    # process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
     X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
     GP_data_points = 400

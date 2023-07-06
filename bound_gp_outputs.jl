@@ -84,32 +84,41 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                     sig_check = sig_bound[idx+1, dim, 2]
                     if refinement > 0 && sig_check <= 0*sqrt(dim_sig)
                         # if previous sigma bounds were already small, don't waste time finding better ones
-                        sig_ = sig_check
+                        sig_upper = sig_check
+                        sig_lower = sig_bound[idx+1, dim, 1]
                     else
                         sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
                                                                     cK_inv_scaled; max_iterations=20,
                                                                     bound_epsilon=1e-3, min_flag=false,
                                                                     prealloc=nothing)
 
-                        sig_ = sqrt(sig_info[3])  # this is a std deviation
+                        sig_upper = sqrt(sig_info[3])  # this is a std deviation
                         sig_low = sqrt(sig_info[2])
-                        if abs(sig_-sig_low) > sqrt(1e-3)
+                        if abs(sig_upper-sig_low) > sqrt(1e-3)
                             # this means it didn't converge properly, use expensive quadratic program to find solution
                             outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
                                                 max_iterations=20, bound_epsilon=sqrt(1e-3))
 
-                            sig_ = outputs[3]
+                            sig_upper = outputs[3]  # this is a std deviation
                         end
+
+                        sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+                                                                    cK_inv_scaled; max_iterations=20,
+                                                                    bound_epsilon=1e-3, min_flag=true,
+                                                                    prealloc=nothing)
+                        @info "$([sqrt(sig_info[3]), sig_upper])"
+                        sig_lower = min(sqrt(sig_info[3]), sig_upper)
                     end
 
-                    sig_bound[idx+1, dim, 2] = sig_
-                    sig_bound[idx+1, dim, 1] = sig_  #TODO, get min std dev
+                    sig_bound[idx+1, dim, 1] = sig_lower
+                    sig_bound[idx+1, dim, 2] = sig_upper
 
                 end
             end
         end
         @info "Calculated bounds for mode $mode in $mode_runtime seconds"
         # save data
+        exit()
         numpy.save(global_exp_dir*"/mean_data_$mode" * "_$refinement", mean_bound)
         numpy.save(global_exp_dir*"/sig_data_$mode" * "_$refinement", sig_bound)
         numpy.save(global_exp_dir*"/complete_$mode" * "_$refinement", 1)

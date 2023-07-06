@@ -209,18 +209,18 @@ def loss_function_theta(unknown_dyn_model, y_data, x_data):
 
 
 def get_grid_info(X, grid_len):
-    large_grid = {k: X[k][1] - X[k][0] for k in list(X)}
+    large_grid = {k: X[k][1] - X[k][0] for k in list(X)}  # essentially a placeholder for local gps
     if len(X) < 3:
         grid_size = {k: grid_len for k in list(X)}
     elif len(X) == 3:
-        # grid_size = {"x1": grid_len, "x2": grid_len, "x3": 4.*grid_len}
-        # grid_size = {"x1": 0.25, "x2": 0.125, "x3": 0.05}
+        grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
         grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
-        grid_size = {"x1": 0.5, "x2": 0.5, "x3": 0.1}
     elif len(X) == 5:
-        # grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.3, "x4": 0.3, "x5": 0.3}
-        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.15, "x4": 0.15, "x5": 0.15}
+        # grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.15, "x4": 0.15, "x5": 0.15}
+        # grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.15, "x4": 0.15, "x5": 0.15}
+        grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1, "x4": 0.1, "x5": 0.1}
     else:
+        print("You need to define a grid size for this dimensionality")
         exit()
 
     return grid_size, large_grid

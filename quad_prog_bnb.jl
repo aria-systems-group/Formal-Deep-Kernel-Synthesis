@@ -90,7 +90,7 @@ function compute_bounds_sqe_quad_prog(model, var, x_train, m, n, sigma_prior, x_
         z_i_vector[idx, :] .= PosteriorBounds.compute_z_intervals(x_train[:, idx], x_L, x_U, theta_vec, n, dx_L, dx_U)
     end
 
-    for ii=1:m  # n_obs
+    for ii=1:m  # m_obs
         r_L[ii] = exp(-z_i_vector[ii,2])
         r_U[ii] = exp(-z_i_vector[ii,1])
         a_i_L, b_i_L, a_i_U, b_i_U = concave_bounds(r_L[ii], r_U[ii])

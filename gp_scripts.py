@@ -47,7 +47,6 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     n_samples = int(np.shape(x_train)[1]/15.)
 
     scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(random_seed)
     global feature_extractor
@@ -56,7 +55,6 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
     y_data = torch.tensor(np.transpose(y_train), dtype=torch.float32).to(device)
     optimizer = torch.optim.Adam(feature_extractor.parameters(), lr=lr)
-    loss_fn = torch.nn.MSELoss(reduction='sum')
     print("Training Neural Network on generated data for mode {}...".format(mode+1))
     for t in range(epochs):
         # Forward pass: compute predicted y by passing x to the model.
@@ -67,10 +65,12 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
         x_mini = x_data[idx]
 
         if use_scaling:
-            # y_mini = scaling_fnc_mkII(x_mini)
-            # y_mini = scaling_fnc_mkII(y_mini)
-            # y_mini = scale_to_bounds(x_mini)
-            y_mini = scale_to_bounds(y_mini)
+            if out_dim == 5:
+                y_mini = scaling_fnc(x_mini)
+            if out_dim == 3:
+                y_mini = scaling_fnc(y_mini, dx=10., dy=2.)
+            else:
+                y_mini = scale_to_bounds(y_mini)
 
         # Compute and print loss.
         loss = loss_function_smooth(feature_extractor, y_mini, x_mini)
@@ -82,19 +82,7 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     feature_extractor.to(torch.device('cpu'))
 
 
-def scaling_fnc(y_in):
-
-    scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
-    M, N = np.shape(y_in)
-    # scale each dimension, rather than the whole input
-    y_out = torch.clone(y_in)
-    for n in range(N):
-        y_out[:, n] = scale_to_bounds(y_in[:, n])
-
-    return y_out
-
-
-def scaling_fnc_mkII(y_in):
+def scaling_fnc(y_in, dx=4., dy=4.):
 
     M, N = np.shape(y_in)
     # scale each dimension, rather than the whole input
@@ -102,11 +90,11 @@ def scaling_fnc_mkII(y_in):
     idx = 0
     for n in range(N):
         if idx == 0:
-            scale = 10.
+            scale = dx
         elif idx == 1:
-            scale = 2.
+            scale = dy
         else:
-            scale = 0.5
+            scale = 1.
         y_out[:, n] = y_in[:, n]/scale
 
     return y_out
@@ -260,6 +248,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                         # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
                         if len(domain) == 3:
                             alpha_ = max(alpha[dim], 0.0075)
+                            alpha_ = max(alpha[dim], 0.01)
                         else:
                             alpha_ = max(alpha[dim], 0.005)
                             alpha_ = max(alpha[dim], 0.01)

@@ -2,7 +2,7 @@
 using Random
 using Distributions
 
-function sys_2d_dynamics(variance)
+function sys_2d_dynamics(std_dev)
     trust_1 = false
     if trust_1
         mode1 = (x) -> [x[1] + 0.25 + 0.05*sin(x[2]),
@@ -31,7 +31,7 @@ function sys_2d_dynamics(variance)
                         x[2] - 0.5 + 0.2*sin(x[1])]
     end
 
-    process_noise = Normal(0., sqrt(variance))
+    process_noise = Normal(0., std_dev)
     f1 = (x) -> mode1(x) + rand(process_noise, (2,1))
     f2 = (x) -> mode2(x) + rand(process_noise, (2,1))
     f3 = (x) -> mode3(x) + rand(process_noise, (2,1))
@@ -41,7 +41,7 @@ function sys_2d_dynamics(variance)
 end
 
 
-function sys_2d_as_3d_dynamics(variance)
+function sys_2d_as_3d_dynamics(std_dev)
 
     mode1 = (x) -> [x[1] + 0.5 + 0.2*sin(x[2]),
                     x[2] + 0.4*cos(x[1]),
@@ -59,7 +59,7 @@ function sys_2d_as_3d_dynamics(variance)
                     x[2] - 0.5 + 0.2*sin(x[1]),
                     0.75*x[3] + 0.1*cos(x[1])]
 
-    process_noise = Normal(0., sqrt(variance))
+    process_noise = Normal(0., std_dev)
     f1 = (x) -> mode1(x) + rand(process_noise, (3,1))
     f2 = (x) -> mode2(x) + rand(process_noise, (3,1))
     f3 = (x) -> mode3(x) + rand(process_noise, (3,1))
@@ -68,52 +68,52 @@ function sys_2d_as_3d_dynamics(variance)
     return [f1, f2, f3, f4]
 end
 
-function sys_3d_dynamics(variance)
-    u = 10
-    omega = 5
+function sys_3d_dynamics(std_dev)
+    u = 10.0
+    omega = 5.0
     Ts = 0.1
 
-    phi = -0.3
+    phi1 = -0.3
     mode1 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi1 - x[3]) * Ts * omega]
 
 
-    phi = -0.15
+    phi2 = -0.15
     mode2 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi2 - x[3]) * Ts * omega]
 
 
-    phi = 0.
+    phi3 = 0.
     mode3 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi3 - x[3]) * Ts * omega]
 
-    phi = 0.3
+    phi4 = 0.3
     mode4 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi4 - x[3]) * Ts * omega]
 
-    phi = 0.15
+    phi5 = 0.15
     mode5 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi5 - x[3]) * Ts * omega]
 
-    phi = 0.45
+    phi6 = 0.45
     mode6 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi6 - x[3]) * Ts * omega]
 
 
-    phi = -0.45
+    phi7 = -0.45
     mode7 = (x) -> [x[1] + Ts * u * cos(x[3]),
                     x[2] + Ts * u * sin(x[3]),
-                    x[3] + (phi - x[3]) * Ts * omega]
+                    x[3] + (phi7 - x[3]) * Ts * omega]
 
 
-    noise_x = Normal(0., sqrt(variance[1]))
-    noise_theta = Normal(0., sqrt(variance[3]))
+    noise_x = Normal(0., std_dev[1])
+    noise_theta = Normal(0., std_dev[3])
     f1 = (x) -> mode1(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1]]
     f2 = (x) -> mode2(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1]]
     f3 = (x) -> mode3(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1]]
@@ -126,7 +126,7 @@ function sys_3d_dynamics(variance)
 end
 
 
-function sys_5d(variance)
+function sys_5d(std_dev)
 
     mode1 = (x) -> [x[1] + 0.35 + (0.1 * sin(x[2])),
                     x[2] + (0.15 * cos(x[1])) + (0.05 * x[3]),
@@ -146,18 +146,18 @@ function sys_5d(variance)
                     (0.4 * x[4]) + (0.05 * x[5]),
                     (0.5 * x[5])]
 
-    mode4 = (x) -> [x[1] + (0.15 * cos(x[2])),
-                    x[2] - 0.35 + (0.1 * sin(x[1])) + (0.05 * x[3]),
-                    (0.3 * x[3]) + (0.4 * x[4]),
-                    (0.4 * x[4]) + (0.05 * x[5]),
-                    (0.5 * x[5])]
+#     mode4 = (x) -> [x[1] + (0.15 * cos(x[2])),
+#                     x[2] - 0.35 + (0.1 * sin(x[1])) + (0.05 * x[3]),
+#                     (0.3 * x[3]) + (0.4 * x[4]),
+#                     (0.4 * x[4]) + (0.05 * x[5]),
+#                     (0.5 * x[5])]
 
-    noise_x = Normal(0., sqrt(variance[1]))
-    noise_theta = Normal(0., sqrt(variance[3]))
+    noise_x = Normal(0., std_dev[1])
+    noise_theta = Normal(0., std_dev[3])
     f1 = (x) -> mode1(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
     f2 = (x) -> mode2(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
     f3 = (x) -> mode3(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
-    f4 = (x) -> mode4(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
+#     f4 = (x) -> mode4(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
 
-    return [f1, f2, f3, f4]
+    return [f1, f2, f3]  # , f4]
 end
