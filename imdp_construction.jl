@@ -170,8 +170,11 @@ function imdp_probs(extents, dyn_noise, global_exp_dir, refinement, num_modes, n
                     lower_mean = mean_bounds[i, dim, 1]
                     upper_mean = mean_bounds[i, dim, 2]
 
+                    # lower_sigma = sig_bounds[i, dim, 1] +dyn_noise[dim]
+                    # upper_sigma = sig_bounds[i, dim, 2] + dyn_noise[dim]  # this is a std deviation
+
                     lower_sigma = dyn_noise[dim]
-                    upper_sigma = sig_bounds[i, dim, 2] + dyn_noise[dim]  # this is a std deviation
+                    upper_sigma = dyn_noise[dim]  # this is a std deviation
 
                     post_bounds = post[dim, :]
                     post_low = post_bounds[1]
@@ -214,12 +217,18 @@ function imdp_probs(extents, dyn_noise, global_exp_dir, refinement, num_modes, n
                     p_max_vec[j] = p_max
                 end
             end
+            if sum_up[] < 1
+                if sum_up[] > .999
+                    # this is a numerical error, adjust the upper bounds to be equal to 1
+                    p_max_vec ./ sum_up[]
+                    maxPrs[row_idx, :] = p_max_vec
+                else
+                    @info "upper bound is bad, $sum_up[], $i, $row_idx"
+                    exit()
+                end
+            end
             minPrs[row_idx, :] = p_min_vec
             maxPrs[row_idx, :] = p_max_vec
-            if sum_up[] < 1
-                @info "upper bound is bad, $sum_up[], $i, $row_idx"
-                exit()
-            end
 
             update(pbar)
         end
@@ -313,12 +322,12 @@ function fast_pimdp(dfa, imdp)
 
     acc_labels = zeros(1, M*sizeQ)
     if !isnothing(dfa_acc_state)
-        acc_labels[dfa_acc_state] .= 1
+        acc_labels[dfa_acc_state] = 1
     end
 
     sink_labels = zeros(1, M*sizeQ)
     if !isnothing(dfa_sink_state)
-        sink_labels[dfa_sink_state] .= 1
+        sink_labels[dfa_sink_state] = 1
     end
 
     pimdp = PIMDPModel(pimdp_states, imdp.actions, nothing, nothing, imdp.labels, acc_labels, sink_labels,
