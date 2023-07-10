@@ -1,8 +1,10 @@
 
-from gp_parallel import *
+# from gp_parallel import *
+from import_script import *
 from generic_fnc import DynModelNetRelu3, DynModelNetRelu2, DynModelNetRelu1, DynModelNetTanh1, DynModelNetTanh3
-from crown_scripts import setup_crown_yaml_dkl
+from crown_scripts import setup_crown_yaml_dkl, run_dkl_crown_parallel
 from space_discretize_scripts import separate_data_into_regions_new, discretize_space_list
+import multiprocessing as mp
 
 
 # =============================================================================================================
@@ -128,29 +130,6 @@ def set_feature_extractor(use_relu, num_layers, network_dims, random_seed=20):
 def reset_feature_extractor(fe):
     global feature_extractor
     feature_extractor = fe
-
-
-class IMDPModel:
-    def __init__(self, states, actions, pmin, pmax, labels, extents):
-        self.states = states
-        self.actions = actions
-        self.Pmin = pmin
-        self.Pmax = pmax
-        self.labels = labels
-        self.extents = extents
-
-
-class PIMDPModel:
-    def __init__(self, states, actions, pmin, pmax, labels, accepting_labels, sink_labels, extents, size_A):
-        self.states = states
-        self.actions = actions
-        self.Pmin = pmin
-        self.Pmax = pmax
-        self.labels = labels
-        self.accepting_labels = accepting_labels
-        self.sink_labels = sink_labels
-        self.extents = extents
-        self.size_dfa = size_A
 
 
 class ExactGPModel(gpytorch.models.ExactGP):
@@ -324,6 +303,196 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
     return gp_by_region, region_info
 
 
+def dkl_save(file_name_base, dkl_models, mode, use_local_gp):
+    mode_models = dkl_models[mode]
+    if use_local_gp:
+        num_regions = len(mode_models)
+        for region in range(num_regions):
+            region_model = mode_models[region]
+            num_dims = len(region_model)
+            for dim in range(num_dims):
+                dim_model = region_model[dim]
+                model = dim_model[0]
+                file_name = file_name_base + f'_{mode}_{dim}_{region}.pth'
+
+                state_dict = model.state_dict()
+                torch.save(state_dict, file_name)
+                time.sleep(0.1)
+    else:
+        num_dims = len(mode_models)
+        for dim in range(num_dims):
+            dim_model = mode_models[dim]
+            model = dim_model[0]
+            file_name = file_name_base + f'_{mode}_{dim}.pth'
+
+            state_dict = model.state_dict()
+            torch.save(state_dict, file_name)
+            time.sleep(0.1)
+
+
+def dkl_load(file_name_base, dkl_models, all_data, use_reLU, num_layers, network_dims):
+    num_models = len(dkl_models)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    for mode in range(num_models):
+        file_name = file_name_base + f'_{mode}_0.pth'
+        if not os.path.exists(file_name):
+            break
+
+        x_train = all_data[mode][0]
+        y_train = np.transpose(all_data[mode][1])
+
+        x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
+        n_obs = max(np.shape(y_train))
+        num_dims = min(np.shape(x_train))
+
+        gp_by_dim = []
+        for dim in range(num_dims):
+            file_name = file_name_base + f'_{mode}_{dim}.pth'
+            print(f'Loading DKL model for mode {mode} and dim {dim + 1}')
+
+            y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
+
+            likelihood = gpytorch.likelihoods.GaussianLikelihood()
+            set_feature_extractor(use_reLU, num_layers, network_dims, 0)
+            model = DeepKernelGP(x_data, y_data, likelihood)
+
+            state_dict = torch.load(file_name)
+            model.load_state_dict(state_dict)
+
+            gp_by_dim.append([model, likelihood])
+            time.sleep(1)
+
+        dkl_models[mode] = gp_by_dim
+
+    return dkl_models
+
+
+############################################################################################
+#  DKL posteriors
+############################################################################################
+
+
+def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global_dir, exp_dir, linear_bounds_info,
+                                    linear_transform_m, linear_transform_b, threads=8, use_regular_gp=False):
+    # This function does parallel calls to CROWN to get bounds on the NN output over input regions
+    extent_len = len(extents)
+    if not use_regular_gp:
+        # this calls the Crown scripts in parallel
+        os.chdir(crown_dir)
+
+        dim_ = 0
+        pool = mp.Pool(threads)
+        results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, global_dir, nn_out_dim, mode, dim_,
+                                                         idx) for idx in range(extent_len)])
+        pool.close()
+
+        # store the results
+        os.chdir(exp_dir)
+        for index, lin_trans in enumerate(results):
+            saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
+            linear_bounds_info[index] = saved_vals
+            saved_m = np.array([lin_trans[0], lin_trans[1]])
+            linear_transform_m[index] = saved_m
+            saved_b = np.array([lin_trans[2], lin_trans[3]])
+            linear_transform_b[index] = saved_b
+
+    else:
+        for index, region in enumerate(extents):
+            x_min = [k[0] for k in list(region)]
+            x_max = [k[1] for k in list(region)]
+            saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
+            linear_bounds_info[index] = saved_vals
+
+    return linear_bounds_info, linear_transform_m, linear_transform_b
+
+
+# BELOW HERE IS TRASH
+
+
+def refine_check_pimdp(imdp:IMDPModel, res, q_question, n_best):
+    theta = np.zeros([len(q_question),])
+
+    action_num = len(imdp.actions)
+    P_max_cols = imdp.Pmax.sum(axis=1)
+    P_min_cols = imdp.Pmin.sum(axis=1)
+    for idx, sq in enumerate(q_question):
+        extent_state = sq[0]
+        res_row_idx = sq[1]
+
+        sat_prob = (res[res_row_idx][3] - res[res_row_idx][2])
+        # action = res[res_row_idx][1]
+        p_actions = 0
+        for action in imdp.actions:
+            imdp_row_idx = int(extent_state*action_num + action)
+            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
+
+        theta[idx] = p_actions * sat_prob
+
+    n_best = min(n_best, len(q_question))
+    refine_idx = np.argsort(theta)[::-1][:n_best]
+    refine_regions = []
+    for i in refine_idx:
+        refine_regions.append(q_question[i][0])
+    refine_regions = np.sort(refine_regions)
+    return refine_regions
+
+
+def refine_check(imdp:IMDPModel, res, q_question, n_best):
+    theta = np.zeros([len(q_question),])
+
+    action_num = len(imdp.actions)
+    P_max_cols = imdp.Pmax.sum(axis=1)
+    P_min_cols = imdp.Pmin.sum(axis=1)
+    for idx, val in enumerate(q_question):
+        p_actions = 0
+        for action in imdp.actions:
+            imdp_row_idx = int(val*action_num + action)
+            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
+        theta[idx] = p_actions * (res[val][3] - res[val][2])
+        # row_idx = int(val*action_num + res[val][1])
+        # theta[idx] = (P_max_cols[row_idx, 0] - P_min_cols[row_idx, 0])*(res[val][3] - res[val][2])
+
+    n_best = min(n_best, len(q_question))
+    refine_idx = np.argsort(theta)[::-1][:n_best]
+    refine_regions = []
+    for i in refine_idx:
+        refine_regions.append(q_question[i])
+    refine_regions = np.sort(refine_regions)
+    return refine_regions
+
+
+def dict_save(file_name, dict_to_save):
+    file_ = open(file_name, "wb")
+    # write the python object (dict) to pickle file
+    pickle.dump(dict_to_save, file_)
+    # close file
+    file_.close()
+
+
+class IMDPModel:
+    def __init__(self, states, actions, pmin, pmax, labels, extents):
+        self.states = states
+        self.actions = actions
+        self.Pmin = pmin
+        self.Pmax = pmax
+        self.labels = labels
+        self.extents = extents
+
+
+class PIMDPModel:
+    def __init__(self, states, actions, pmin, pmax, labels, accepting_labels, sink_labels, extents, size_A):
+        self.states = states
+        self.actions = actions
+        self.Pmin = pmin
+        self.Pmax = pmax
+        self.labels = labels
+        self.accepting_labels = accepting_labels
+        self.sink_labels = sink_labels
+        self.extents = extents
+        self.size_dfa = size_A
+
+
 def deep_kernel_with_fixed_nn(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                               training_iter=40, lr=0.01, process_noise=None, random_seed=11, epochs=10000, nn_lr=1e-3):
     x_train = all_data[mode][0]
@@ -468,83 +637,6 @@ def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, 
     return gp_by_dim
 
 
-def dkl_save(file_name_base, dkl_models, mode, use_local_gp):
-    mode_models = dkl_models[mode]
-    if use_local_gp:
-        num_regions = len(mode_models)
-        for region in range(num_regions):
-            region_model = mode_models[region]
-            num_dims = len(region_model)
-            for dim in range(num_dims):
-                dim_model = region_model[dim]
-                model = dim_model[0]
-                file_name = file_name_base + f'_{mode}_{dim}_{region}.pth'
-
-                state_dict = model.state_dict()
-                torch.save(state_dict, file_name)
-                time.sleep(0.1)
-    else:
-        num_dims = len(mode_models)
-        for dim in range(num_dims):
-            dim_model = mode_models[dim]
-            model = dim_model[0]
-            file_name = file_name_base + f'_{mode}_{dim}.pth'
-
-            state_dict = model.state_dict()
-            torch.save(state_dict, file_name)
-            time.sleep(0.1)
-
-
-def dkl_load(file_name_base, dkl_models, all_data, use_reLU, num_layers, network_dims):
-    num_models = len(dkl_models)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    for mode in range(num_models):
-        file_name = file_name_base + f'_{mode}_0.pth'
-        if not os.path.exists(file_name):
-            break
-
-        x_train = all_data[mode][0]
-        y_train = np.transpose(all_data[mode][1])
-
-        x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
-        n_obs = max(np.shape(y_train))
-        num_dims = min(np.shape(x_train))
-
-        gp_by_dim = []
-        for dim in range(num_dims):
-            file_name = file_name_base + f'_{mode}_{dim}.pth'
-            print(f'Loading DKL model for mode {mode} and dim {dim + 1}')
-
-            y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
-
-            likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            set_feature_extractor(use_reLU, num_layers, network_dims, 0)
-            model = DeepKernelGP(x_data, y_data, likelihood)
-
-            state_dict = torch.load(file_name)
-            model.load_state_dict(state_dict)
-
-            gp_by_dim.append([model, likelihood])
-            time.sleep(1)
-
-        dkl_models[mode] = gp_by_dim
-
-    return dkl_models
-
-
-# =============================================================================================================
-# Posterior Predictions
-# =============================================================================================================
-
-def dict_save(file_name, dict_to_save):
-    file_ = open(file_name, "wb")
-    # write the python object (dict) to pickle file
-    pickle.dump(dict_to_save, file_)
-    # close file
-    file_.close()
-
-
 def generate_trans_par_dkl(extents, region_data,  modes, threads, file_name, process_dist):
     # This function generates the transition probability matrix, it periodically saves the results
     num_extents = len(extents)
@@ -599,10 +691,6 @@ def generate_trans_par_dkl(extents, region_data,  modes, threads, file_name, pro
         max_prob = vstack((max_prob, sparse_trans), format='csr')
 
     return min_prob, max_prob
-
-# =============================================================================================================
-#  IMDP synthesis
-# =============================================================================================================
 
 
 def matches(test_label, compare_label):
@@ -871,63 +959,6 @@ def res_to_numbers(res):
         res_mat[i][3] = float(res_split[i * 4 + 4])  # max prob
 
     return res_mat
-
-
-def refine_check_pimdp(imdp:IMDPModel, res, q_question, n_best):
-    theta = np.zeros([len(q_question),])
-
-    action_num = len(imdp.actions)
-    P_max_cols = imdp.Pmax.sum(axis=1)
-    P_min_cols = imdp.Pmin.sum(axis=1)
-    for idx, sq in enumerate(q_question):
-        extent_state = sq[0]
-        res_row_idx = sq[1]
-
-        sat_prob = (res[res_row_idx][3] - res[res_row_idx][2])
-        # action = res[res_row_idx][1]
-        p_actions = 0
-        for action in imdp.actions:
-            imdp_row_idx = int(extent_state*action_num + action)
-            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
-
-        theta[idx] = p_actions * sat_prob
-
-    n_best = min(n_best, len(q_question))
-    refine_idx = np.argsort(theta)[::-1][:n_best]
-    refine_regions = []
-    for i in refine_idx:
-        refine_regions.append(q_question[i][0])
-    refine_regions = np.sort(refine_regions)
-    return refine_regions
-
-
-def refine_check(imdp:IMDPModel, res, q_question, n_best):
-    theta = np.zeros([len(q_question),])
-
-    action_num = len(imdp.actions)
-    P_max_cols = imdp.Pmax.sum(axis=1)
-    P_min_cols = imdp.Pmin.sum(axis=1)
-    for idx, val in enumerate(q_question):
-        p_actions = 0
-        for action in imdp.actions:
-            imdp_row_idx = int(val*action_num + action)
-            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
-        theta[idx] = p_actions * (res[val][3] - res[val][2])
-        # row_idx = int(val*action_num + res[val][1])
-        # theta[idx] = (P_max_cols[row_idx, 0] - P_min_cols[row_idx, 0])*(res[val][3] - res[val][2])
-
-    n_best = min(n_best, len(q_question))
-    refine_idx = np.argsort(theta)[::-1][:n_best]
-    refine_regions = []
-    for i in refine_idx:
-        refine_regions.append(q_question[i])
-    refine_regions = np.sort(refine_regions)
-    return refine_regions
-
-
-# =============================================================================================================
-#  Plot IMDP Synthesis Results
-# =============================================================================================================
 
 
 def which_extent(x, extents):
@@ -1364,3 +1395,131 @@ def in_goal(x, goal_set):
         if in_goal_:
             return True
     return False
+
+
+
+############################################################################################
+#  Transition probabilities
+############################################################################################
+
+
+def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
+    num_extents = len(extents)
+
+    mean_info = mode_info[0][pre_idx]
+    sig_info = mode_info[1][pre_idx]
+
+    check_idx = get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs)
+    check_idx.append(num_extents - 1)
+
+    pool = mp.Pool(threads)
+    results = pool.starmap(erf_transitions, [(num_extents, num_dims, sigs, mean_info, sig_info,
+                                              post_idx, extents[post_idx]) for post_idx in check_idx])
+    pool.close()
+
+    max_out = np.zeros(num_extents)
+    min_out = np.zeros(num_extents)
+    for idx, res in enumerate(results):
+        max_out[check_idx[idx]] = res[1]
+        min_out[check_idx[idx]] = res[0]
+
+    return min_out, max_out
+
+
+def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
+    possible_intersect = {}
+    intersect_list = []
+    what_sig = 3  # be within 3 standard deviations of the mean
+    for dim in range(num_dims):
+        possible_intersect[dim] = []
+        upper_sig = sig_info[dim][1]  # this is a std deviation
+        upper_sig += np.sqrt(sigs[dim])
+
+        lower_bound = mean_info[dim][0] - what_sig * upper_sig
+        upper_bound = mean_info[dim][1] + what_sig * upper_sig
+        for idx, region in enumerate(extents):
+            if region[dim][1] > lower_bound and region[dim][0] < upper_bound:
+                # if the 3*sigma lower bound is less than the higher value of the region and the 3*sigma upper
+                # bound is greater than the lower bound of the region then these might have probabilities
+                # higher than like 0.001
+                possible_intersect[dim].extend([idx])
+        intersect_list.append(list(set(possible_intersect[dim])))
+
+    intersects_ = list(set.intersection(*map(set, intersect_list)))
+
+    return intersects_
+
+
+def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, post_region):
+    # check if these two regions intersect
+    p_min = 1
+    p_max = 1
+    for dim in range(num_dims):
+        lower_mean = mean_info[dim][0]
+        upper_mean = mean_info[dim][1]
+
+        upper_sigma = sig_info[dim][1] + np.sqrt(sigs[dim])  # this is a std deviation
+        lower_sigma = sig_info[dim][0]
+
+        post_bounds = post_region[dim]
+        post_low = post_bounds[0]
+        post_up = post_bounds[1]
+        post_mean = post_low + (post_up - post_low) / 2
+
+        # check to see transition probability to this region
+        if lower_mean > post_up:
+            # post entirely to the right of the pre
+            # max prob is with the lowest mean
+            p_max *= max(prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
+                         prob_via_erf(post_up, post_low, lower_mean, lower_sigma))
+
+            # min prob is with the largest mean
+            p_min *= min(prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
+                         prob_via_erf(post_up, post_low, upper_mean, lower_sigma))
+        elif upper_mean < post_low:
+            # post entirely to the left of the pre
+            # max prob is with the largest mean
+            p_max *= max(prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
+                         prob_via_erf(post_up, post_low, upper_mean, lower_sigma))
+
+            # min prob is with the lowest mean
+            p_min *= min(prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
+                         prob_via_erf(post_up, post_low, lower_mean, lower_sigma))
+        else:
+            # post intersects with pre
+            # find point on post mean that is closest to the center of the pre with the smallest sigma
+
+            if (lower_mean < post_mean) and (upper_mean > post_mean):
+                middle_mean = post_mean
+            elif upper_mean < post_mean:
+                # upper bound is closer to the center
+                middle_mean = upper_mean
+            else:
+                # lower bound is closer to the center
+                middle_mean = lower_mean
+
+            p_max *= prob_via_erf(post_up, post_low, middle_mean, lower_sigma)
+
+            # min prob will be one of the four combos of largest/smallest mean/sigma
+            p_min *= min([prob_via_erf(post_up, post_low, lower_mean, lower_sigma),
+                          prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
+                          prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
+                          prob_via_erf(post_up, post_low, upper_mean, lower_sigma)])
+
+    if post_idx == num_extents - 1:
+        p_min_ = p_min
+        p_min = 1 - p_max
+        p_max = 1 - p_min_
+
+    if p_min < 1e-4:
+        p_min = 0
+    if p_max < 1e-4:
+        p_max = 0
+
+    return [p_min, p_max]
+
+
+def prob_via_erf(lb, la, mean, sigma):
+    # Pr(la <= X <= lb) when X ~ N(mean, sigma)
+    return 0.5 * (math.erf((lb - mean) / (math.sqrt(2) * sigma)) - math.erf((la - mean) / (math.sqrt(2) * sigma)))
+

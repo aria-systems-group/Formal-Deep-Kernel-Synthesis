@@ -101,13 +101,12 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
 
                             sig_upper = outputs[3]  # this is a std deviation
                         end
-
-                        sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
-                                                                    cK_inv_scaled; max_iterations=20,
-                                                                    bound_epsilon=1e-3, min_flag=true,
-                                                                    prealloc=nothing)
-                        @info "$([sqrt(sig_info[3]), sig_upper])"
-                        sig_lower = min(sqrt(sig_info[3]), sig_upper)
+                        # TODO, figure out why this takes forever
+#                         sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+#                                                                     cK_inv_scaled; max_iterations=10,
+#                                                                     bound_epsilon=1e-2, min_flag=true,
+#                                                                     prealloc=nothing)
+                        sig_lower = min(sig_low, sig_upper)
                     end
 
                     sig_bound[idx+1, dim, 1] = sig_lower
@@ -118,7 +117,6 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
         end
         @info "Calculated bounds for mode $mode in $mode_runtime seconds"
         # save data
-        exit()
         numpy.save(global_exp_dir*"/mean_data_$mode" * "_$refinement", mean_bound)
         numpy.save(global_exp_dir*"/sig_data_$mode" * "_$refinement", sig_bound)
         numpy.save(global_exp_dir*"/complete_$mode" * "_$refinement", 1)

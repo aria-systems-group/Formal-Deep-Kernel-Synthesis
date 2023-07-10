@@ -213,8 +213,8 @@ def get_grid_info(X, grid_len):
     if len(X) < 3:
         grid_size = {k: grid_len for k in list(X)}
     elif len(X) == 3:
+        # grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
         grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
-        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.05}
     elif len(X) == 5:
         # grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.15, "x4": 0.15, "x5": 0.15}
         # grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.15, "x4": 0.15, "x5": 0.15}

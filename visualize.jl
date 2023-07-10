@@ -1,5 +1,6 @@
 
 using Plots
+using Printf
 
 
 function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa, pimdp, refinement; num_dfa_states=1,
@@ -44,13 +45,19 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
         else
             global maybe_volume += volumize(extents[i, :, :], num_dims)
             append!(maybe_regions, [i])
-            append!(q_refine, [i])
+            append!(q_refine, [i])  # this is the extent number! yay
         end
     end
 
     total_volume = sat_volume + unsat_volume + maybe_volume
     @info "Qyes = $(length(sat_regions)), Qno = $(length(unsat_regions)), Q? = $(length(maybe_regions))"
     @info "Volume percentage: Qyes = $(sat_volume/total_volume), Qno = $(unsat_volume/total_volume), Q? = $(maybe_volume/total_volume)"
+
+    filename = plot_dir * "/sat_res_$refinement.txt"
+    open(filename, "w") do f
+        @printf(f, "Qyes = %d, Qno = %d, Q? = %d \n", length(sat_regions), length(unsat_regions), length(maybe_regions))
+        @printf(f, "Volume percentage: Qyes = %f, Qno = %f, Q? = %f \n", (sat_volume/total_volume), (unsat_volume/total_volume), (maybe_volume/total_volume))
+    end
 
     if prob_plots
         # Plot the maximum probabilities
@@ -174,8 +181,6 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
             s = which_extent(extents, x, num_regions, num_dims)
             q_init = delta_(1, dfa, pimdp.labels[s])
             q = q_init
-#             @info (s, q)
-#             @info x
             traj_done = false
             steps = 1
             while !traj_done
@@ -183,8 +188,6 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
                 action = floor(Int, policy[row_idx])
                 f = modes[action]
                 x = f(x)
-
-#                 @info "$action : $(x[1:2])"
 
                 s = which_extent(extents, x, num_regions, num_dims)
                 if s == num_regions+1
@@ -217,6 +220,8 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
         end
         savefig(plt_verification, plot_dir * "/trajectories_results_$(refinement).png")
     end
+
+    return q_refine
 end
 
 

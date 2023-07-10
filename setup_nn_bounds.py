@@ -7,12 +7,9 @@ from generic_fnc import *
 from dynamics_script import *
 from gp_scripts import *
 from space_discretize_scripts import discretize_space_list
-from gp_parallel import *
+# from gp_parallel import *
 
 from juliacall import Main as jl
-# jl.seval("using Pkg")
-# Pkg_add = jl.seval("Pkg.add")
-# Pkg_add(url="https://github.com/aria-systems-group/PosteriorBounds.jl")
 jl.seval("using PosteriorBounds")
 theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
 
@@ -81,25 +78,28 @@ elif experiment_number == 2:
     epochs = 600
     grid_len = 0.125
 elif experiment_number == 3:
-    # 3D experiment, 4 modes, 200 data points per mode
-    global_dir_name = "sys_3d"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.01], "dist": "multi_norm"}
-    unknown_modes_list = [g_2d_as_3d_mode0, g_2d_as_3d_mode1, g_2d_as_3d_mode2, g_2d_as_3d_mode3]
-    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-2., 2.]}
-    GP_data_points = 200
-    nn_epochs = 200
+    # 3D experiment, 7 modes, 400 data points per mode
+    global_dir_name = "dubins_sys"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
+    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
+    GP_data_points = 400
+    nn_epochs = 3000
+    width_1 = 128
+    width_2 = 128
+    num_layers = 2
     epochs = 600
-    grid_len = 0.125
+    use_scaling = True
+    learning_rate = 1e-4
 elif experiment_number == 4:
-    # 3D experiment, 4 modes, 200 data points per mode
-    global_dir_name = "sys_3d_gp"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.01], "dist": "multi_norm"}
-    unknown_modes_list = [g_2d_as_3d_mode0, g_2d_as_3d_mode1, g_2d_as_3d_mode2, g_2d_as_3d_mode3]
+    # 3D experiment, 7 modes, 400 data points per mode
+    global_dir_name = "dubins_sys_gp"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
     X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-2., 2.]}
     use_regular_gp = True
-    GP_data_points = 200
+    GP_data_points = 400
     epochs = 600
-    grid_len = 0.125
 elif experiment_number == 5:
     # 5D experiment, 3 modes, 1000 data points per mode
     global_dir_name = "sys_5d"
@@ -113,30 +113,6 @@ elif experiment_number == 5:
     num_layers = 2
     use_scaling = True
     nn_epochs = 4000
-elif experiment_number == 30:
-    # 3D experiment, 5 modes, 1000 data points per mode
-    global_dir_name = "dubins_sys"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
-    GP_data_points = 400
-    nn_epochs = 3000
-    width_1 = 128
-    width_2 = 128
-    num_layers = 2
-    epochs = 600
-    use_scaling = True
-    learning_rate = 1e-4
-elif experiment_number == 40:
-    # 3D experiment, 5 modes, 1000 data points per mode, uses a standard GP rather than a deep kernel
-    use_regular_gp = True
-    global_dir_name = "dubins_sys_gp"
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5]
-    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-0.5, 0.5]}
-    GP_data_points = 400
-    epochs = 600
-    learning_rate = 1e-4
 elif experiment_number == 60:
     # 3D experiment, 5 modes, 1000 data points per mode
     global_dir_name = "dubins_sys_expanded"
@@ -176,6 +152,9 @@ out_dim = d
 network_dims = [d, width_1, width_2, out_dim]
 
 extents = discretize_space_list(X, grid_size)
+# knowledge of the space may allow some extents to be merged, do that with unsafe states certainly
+
+
 filename = global_exp_dir + f"/extents_{refinement}"
 np.save(filename, np.array(extents))
 extents.pop()
