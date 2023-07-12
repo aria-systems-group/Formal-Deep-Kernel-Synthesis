@@ -91,3 +91,36 @@ def discretize_space_list(space, grid_size, include_space=True):
         discrete_sets.append(space_list)
 
     return discrete_sets
+
+
+def extent_in_bounds(extent, bounds, dims):
+    for dim in range(dims):
+        if extent[dim][0] >= bounds[dim][0] and extent[dim][1] <= bounds[dim][1]:
+            continue
+        else:
+            return False
+
+    return True
+
+
+def merge_extent_fnc(extents, merge_bounds, dims):
+    domain = extents.pop()
+
+    merge_names = list(merge_bounds)
+    for name in merge_names:
+        merged_exteriors = merge_bounds[name]
+        in_region = []
+        for bounds in merged_exteriors:
+            # find all extents that fit inside this region and make them one
+            for i in range(len(extents)):
+                if extent_in_bounds(extents[i], bounds, dims):
+                    in_region.append(i)
+
+            for i in reversed(np.sort(in_region)):
+                extents.pop(i)
+
+            extents.append(bounds)
+
+    extents.append(domain)
+    return extents
+

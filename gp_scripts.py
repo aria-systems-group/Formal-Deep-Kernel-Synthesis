@@ -1,5 +1,4 @@
 
-# from gp_parallel import *
 from import_script import *
 from generic_fnc import DynModelNetRelu3, DynModelNetRelu2, DynModelNetRelu1, DynModelNetTanh1, DynModelNetTanh3
 from crown_scripts import setup_crown_yaml_dkl, run_dkl_crown_parallel
@@ -68,7 +67,8 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
 
         if use_scaling:
             if out_dim == 5:
-                y_mini = scaling_fnc(x_mini)
+                # y_mini = scaling_fnc(x_mini)
+                y_mini = scaling_fnc(y_mini, dx=8., dy=8., dz=2.)
             if out_dim == 3:
                 y_mini = scaling_fnc(y_mini, dx=10., dy=2.)
             else:
@@ -84,7 +84,7 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
     feature_extractor.to(torch.device('cpu'))
 
 
-def scaling_fnc(y_in, dx=4., dy=4.):
+def scaling_fnc(y_in, dx=4., dy=4., dz=1.):
 
     M, N = np.shape(y_in)
     # scale each dimension, rather than the whole input
@@ -96,7 +96,7 @@ def scaling_fnc(y_in, dx=4., dy=4.):
         elif idx == 1:
             scale = dy
         else:
-            scale = 1.
+            scale = dz
         y_out[:, n] = y_in[:, n]/scale
 
     return y_out
@@ -168,6 +168,110 @@ class DeepKernelGP(gpytorch.models.ExactGP):
 # =============================================================================================================
 # Learning functions
 # =============================================================================================================
+
+
+# def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
+#                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
+#                                epochs=10000, nn_lr=1e-3, use_regular_gp=False, use_scaling=False):
+#     # this function trains either a standard se_kernel GP (if use_regular_gp=True) or a deep kernel model
+#     # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
+#     # The models are trained on local data sets to reduce computational load in the future
+#
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#     alpha = 1e-2
+#     if process_noise is not None:
+#         alpha = process_noise["sig"]
+#
+#     if not use_regular_gp:
+#         # train the NN with all the data
+#         train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed,
+#                                 epochs=epochs, lr=nn_lr, use_scaling=use_scaling)
+#
+#     print('Optimizing GP parameters\n')
+#
+#     domain_list = discretize_space_list(domain, grid_size, include_space=False)
+#     region_data = [None, None, domain_list]
+#     x_train = all_data[mode][0]
+#     y_train = all_data[mode][1]
+#     region_data[0] = x_train
+#     region_data[1] = y_train
+#
+#     y_train = np.transpose(y_train)
+#     x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
+#     n_obs = np.shape(y_train)[0]
+#
+#     gp_by_dim = []
+#     for dim, key in enumerate(keys):
+#
+#         y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
+#
+#         likelihood = gpytorch.likelihoods.GaussianLikelihood()
+#
+#         if use_regular_gp:
+#             model = ExactGPModel(x_data, y_data, likelihood)
+#         else:
+#             model = DeepKernelGP(x_data, y_data, likelihood)
+#
+#         if torch.cuda.is_available():
+#             model = model.cuda()
+#             likelihood = likelihood.cuda()
+#
+#         if process_noise["dist"] == "multi_norm":
+#             alpha_ = alpha[dim]
+#             if "theta_dim" in list(process_noise):
+#                 if dim in process_noise["theta_dim"]:
+#                     # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
+#                     if len(domain) == 3:
+#                         alpha_ = max(alpha[dim], 0.0075)
+#                         alpha_ = max(alpha[dim], 0.01)
+#                     else:
+#                         alpha_ = max(alpha[dim], 0.005)
+#                         alpha_ = max(alpha[dim], 0.01)
+#         else:
+#             alpha_ = alpha
+#         hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
+#
+#         model.initialize(**hypers)
+#         model.train()
+#         likelihood.train()
+#
+#         # NOTE, this does not optimize the NN feature extractor, uses the pre-trained version
+#         optimizer = torch.optim.Adam([{'params': model.covar_module.parameters()},
+#                                       {'params': model.mean_module.parameters()},
+#                                       {'params': model.likelihood.parameters()},
+#                                       ], lr=lr)
+#
+#         mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
+#         for i in range(training_iter):
+#             # Zero gradients from previous iteration
+#             optimizer.zero_grad()
+#             # Output from model
+#             output = model(x_data)
+#
+#             # Calc loss and backprop gradients
+#             loss = -mll(output, y_data)
+#
+#             loss.backward()
+#             if i % training_iter == training_iter-1:
+#                 print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
+#                       (i + 1, training_iter, loss.item(),
+#                        model.covar_module.base_kernel.lengthscale.item()))
+#
+#             optimizer.step()
+#
+#         if not use_regular_gp and global_dir_name is not None:
+#             setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
+#             torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
+#             nn_to_save = model.feature_extractor
+#             torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
+#
+#         model.eval()
+#         likelihood.eval()
+#         print("")
+#         gp_by_dim.append([model, likelihood])
+#
+#     return gp_by_dim, region_data
+
 
 def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
@@ -246,7 +350,6 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                                           ], lr=lr)
 
             mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
-            final_loss = 9e9
             for i in range(training_iter):
                 # Zero gradients from previous iteration
                 optimizer.zero_grad()
@@ -257,33 +360,12 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                 loss = -mll(output, y_data)
 
                 loss.backward()
-                final_loss = loss.item()
                 if i % training_iter == training_iter-1:
                     print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
                           (i + 1, training_iter, loss.item(),
                            model.covar_module.base_kernel.lengthscale.item()))
 
                 optimizer.step()
-
-            if False and final_loss > -1. and len(keys) < 4:
-                # keep training for another 200 iterations
-                print('Continuing training on this dimension...')
-                for i in range(200):
-                    # Zero gradients from previous iteration
-                    optimizer.zero_grad()
-                    # Output from model
-                    output = model(x_data)
-
-                    # Calc loss and backprop gradients
-                    loss = -mll(output, y_data)
-
-                    loss.backward()
-                    if i % 200 == 199:
-                        print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
-                              (i + 1, 200, loss.item(),
-                               model.covar_module.base_kernel.lengthscale.item()))
-
-                    optimizer.step()
 
             if not use_regular_gp and global_dir_name is not None:
                 setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
@@ -407,1119 +489,17 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
     return linear_bounds_info, linear_transform_m, linear_transform_b
 
 
-# BELOW HERE IS TRASH
-
-
-def refine_check_pimdp(imdp:IMDPModel, res, q_question, n_best):
-    theta = np.zeros([len(q_question),])
-
-    action_num = len(imdp.actions)
-    P_max_cols = imdp.Pmax.sum(axis=1)
-    P_min_cols = imdp.Pmin.sum(axis=1)
-    for idx, sq in enumerate(q_question):
-        extent_state = sq[0]
-        res_row_idx = sq[1]
-
-        sat_prob = (res[res_row_idx][3] - res[res_row_idx][2])
-        # action = res[res_row_idx][1]
-        p_actions = 0
-        for action in imdp.actions:
-            imdp_row_idx = int(extent_state*action_num + action)
-            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
-
-        theta[idx] = p_actions * sat_prob
-
-    n_best = min(n_best, len(q_question))
-    refine_idx = np.argsort(theta)[::-1][:n_best]
-    refine_regions = []
-    for i in refine_idx:
-        refine_regions.append(q_question[i][0])
-    refine_regions = np.sort(refine_regions)
-    return refine_regions
-
-
-def refine_check(imdp:IMDPModel, res, q_question, n_best):
-    theta = np.zeros([len(q_question),])
-
-    action_num = len(imdp.actions)
-    P_max_cols = imdp.Pmax.sum(axis=1)
-    P_min_cols = imdp.Pmin.sum(axis=1)
-    for idx, val in enumerate(q_question):
-        p_actions = 0
-        for action in imdp.actions:
-            imdp_row_idx = int(val*action_num + action)
-            p_actions += P_max_cols[imdp_row_idx, 0] - P_min_cols[imdp_row_idx, 0]
-        theta[idx] = p_actions * (res[val][3] - res[val][2])
-        # row_idx = int(val*action_num + res[val][1])
-        # theta[idx] = (P_max_cols[row_idx, 0] - P_min_cols[row_idx, 0])*(res[val][3] - res[val][2])
-
-    n_best = min(n_best, len(q_question))
-    refine_idx = np.argsort(theta)[::-1][:n_best]
-    refine_regions = []
-    for i in refine_idx:
-        refine_regions.append(q_question[i])
-    refine_regions = np.sort(refine_regions)
-    return refine_regions
-
-
-def dict_save(file_name, dict_to_save):
-    file_ = open(file_name, "wb")
-    # write the python object (dict) to pickle file
-    pickle.dump(dict_to_save, file_)
-    # close file
-    file_.close()
-
-
-class IMDPModel:
-    def __init__(self, states, actions, pmin, pmax, labels, extents):
-        self.states = states
-        self.actions = actions
-        self.Pmin = pmin
-        self.Pmax = pmax
-        self.labels = labels
-        self.extents = extents
-
-
-class PIMDPModel:
-    def __init__(self, states, actions, pmin, pmax, labels, accepting_labels, sink_labels, extents, size_A):
-        self.states = states
-        self.actions = actions
-        self.Pmin = pmin
-        self.Pmax = pmax
-        self.labels = labels
-        self.accepting_labels = accepting_labels
-        self.sink_labels = sink_labels
-        self.extents = extents
-        self.size_dfa = size_A
-
-
-def deep_kernel_with_fixed_nn(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
-                              training_iter=40, lr=0.01, process_noise=None, random_seed=11, epochs=10000, nn_lr=1e-3):
-    x_train = all_data[mode][0]
-    y_train = np.transpose(all_data[mode][1])
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
-
-    alpha = 1e-3
-    if process_noise is not None:
-        alpha = process_noise["sig"]
-
-    hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha), }
-
-    n_obs = max(np.shape(y_train))
-    gp_by_dim = []
-
-    train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed, good_loss=0.1,
-                            epochs=epochs, lr=nn_lr)
-    print('Optimizing GP parameters\n')
-    for dim, key in enumerate(keys):
-
-        y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
-
-        likelihood = gpytorch.likelihoods.GaussianLikelihood()
-
-        model = DeepKernelGP(x_data, y_data, likelihood)
-        if torch.cuda.is_available():
-            model = model.cuda()
-            likelihood = likelihood.cuda()
-
-        model.initialize(**hypers)
-        model.train()
-        likelihood.train()
-
-        # NOTE, this does not optimize the NN feature extractor, just use a pre-trained version
-        optimizer = torch.optim.Adam([{'params': model.covar_module.parameters()},
-                                      {'params': model.mean_module.parameters()},
-                                      {'params': model.likelihood.parameters()},
-                                      ], lr=lr)
-
-        mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
-        for i in range(training_iter):
-            # Zero gradients from previous iteration
-            optimizer.zero_grad()
-            # Output from model
-            output = model(x_data)
-
-            # Calc loss and backprop gradients
-            loss = -mll(output, y_data)
-
-            loss.backward()
-            if i % training_iter == training_iter-1:
-                print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
-                      (i + 1, training_iter, loss.item(),
-                       model.covar_module.base_kernel.lengthscale.item()))
-
-            optimizer.step()
-
-        setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
-        torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
-        nn_to_save = model.feature_extractor
-        torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
-
-        model.eval()
-        likelihood.eval()
-        print("")
-
-        gp_by_dim.append([model, likelihood])
-
-    return gp_by_dim
-
-
-def deep_kernel_learn(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
-                      training_iter=40, lr=0.01, process_noise=None, random_seed=11):
-
-    # define training data
-    x_train = all_data[mode][0]
-    y_train = np.transpose(all_data[mode][1])
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
-
-    alpha = 1e-3
-    if process_noise is not None:
-        alpha = process_noise["sig"]
-
-    hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha), }
-
-    n_obs = max(np.shape(y_train))
-    gp_by_dim = []
-    for dim, key in enumerate(keys):
-
-        y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
-
-        set_feature_extractor(use_reLU, num_layers, network_dims, random_seed + dim)
-        likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        model = DeepKernelGP(x_data, y_data, likelihood)
-
-        if torch.cuda.is_available():
-            model = model.cuda()
-            likelihood = likelihood.cuda()
-
-        model.initialize(**hypers)
-        model.train()
-        likelihood.train()
-        optimizer = torch.optim.Adam([{'params': model.feature_extractor.parameters()},
-                                      {'params': model.covar_module.parameters()},
-                                      {'params': model.mean_module.parameters()},
-                                      {'params': model.likelihood.parameters()},
-                                      ], lr=lr)
-
-        mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
-        for i in range(training_iter):
-            # Zero gradients from previous iteration
-            optimizer.zero_grad()
-            # Output from model
-            output = model(x_data)
-
-            # Calc loss and backprop gradients
-            loss = -mll(output, y_data)
-
-            loss.backward()
-            if i % 100 == 99:
-                print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
-                      (i + 1, training_iter, loss.item(),
-                       model.covar_module.base_kernel.lengthscale.item()))
-
-            optimizer.step()
-
-        setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
-        torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
-        nn_to_save = model.feature_extractor
-        torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
-
-        model.eval()
-        likelihood.eval()
-        print("")
-
-        gp_by_dim.append([model, likelihood])
-
-    return gp_by_dim
-
-
-def generate_trans_par_dkl(extents, region_data,  modes, threads, file_name, process_dist):
-    # This function generates the transition probability matrix, it periodically saves the results
-    num_extents = len(extents)
-    num_modes = len(modes)
-    num_dims = len(region_data[0][0][0])
-
-    min_prob = None
-    max_prob = None
-
-    sigs = process_dist["sig"]
-
-    max_extents = 10000
-    can_test = int(max_extents/num_modes)
-    can_test = min(num_extents-1, can_test)
-
-    num_left = num_extents*num_modes  # how many state/action pairs need evaluated
-    while num_left > num_modes:
-
-        insert_idx = 0
-        for pre_idx in range(can_test):
-            for mode in modes:
-                min_, max_ = parallel_erf(extents, region_data[mode], num_dims, pre_idx, mode, sigs, threads=threads)
-                if pre_idx == 0 and mode == 0:
-                    min_prob_csr = csr_matrix(min_)
-                    max_prob_csr = csr_matrix(max_)
-                else:
-                    min_prob_csr = vstack((min_prob_csr, csr_matrix(min_)), format='csr')
-                    max_prob_csr = vstack((max_prob_csr, csr_matrix(max_)), format='csr')
-                insert_idx += 1
-
-        if min_prob is None:
-            min_prob = min_prob_csr
-            max_prob = max_prob_csr
-        else:
-            min_prob = vstack((min_prob, min_prob_csr), format='csr')  # this takes almost no space as a csr mat
-            max_prob = vstack((max_prob, max_prob_csr), format='csr')
-
-        probs = {"min": min_prob, "max": max_prob}
-        dict_save(file_name, probs)
-        del probs
-
-        num_left -= insert_idx
-        print(f'Have {num_left-num_modes} transition posteriors to find.')
-        if num_left < can_test * num_modes:
-            can_test = int(num_left/num_modes) - 1
-
-    self_trans = np.zeros(num_extents)
-    self_trans[num_extents - 1] = 1
-    sparse_trans = csr_matrix(self_trans)
-    for mode in modes:
-        min_prob = vstack((min_prob, sparse_trans), format='csr')  # this takes almost no space as a csr mat
-        max_prob = vstack((max_prob, sparse_trans), format='csr')
-
-    return min_prob, max_prob
-
-
-def matches(test_label, compare_label):
-    if test_label == 'true':
-        # any observation satisfies true
-        return True
-    separated_test = set(test_label.split('∧'))
-    separated_compare = set(compare_label.split('∧'))
-    if separated_test.issubset(separated_compare):
-        return True
-    return False
-
-
-def delta_(q, dfa, label):
-    # returns a list of dfa states that can be transitioned to from q under the label
-    labels = []
-    for relation in dfa["trans"]:
-        if relation[0] == q and matches(relation[1], label):
-            labels.append(relation[2])
-
-    return labels
-
-
-def construct_pimdp(dfa, imdp:IMDPModel):
-
-    # this assumes one accepting state and one sink state
-    states = dfa["states"]
-    states = np.sort(states)
-    size_dfa = len(states)
-    sink_state = dfa["sink"]
-    accept_state = dfa["accept"]
-
-    N, M = np.shape(imdp.Pmin)
-
-    acc_labels = lil_matrix(np.zeros([M*size_dfa, 1]))
-    sink_labels = lil_matrix(np.zeros([M*size_dfa, 1]))
-
-    idx = 0
-    pimdp_states = []
-    for s in imdp.states:
-        for q in states:
-            if q == accept_state:
-                acc_labels[idx] = 1
-            if q == sink_state:
-                sink_labels[idx] = 1
-            pimdp_states.append((s, q))
-            idx += 1
-
-    # contruct new probability matrices, this is pretty slow unfortunately
-    Pmin_new = lil_matrix(np.zeros([N * size_dfa, M * size_dfa]))
-    Pmax_new = lil_matrix(np.zeros([N * size_dfa, M * size_dfa]))
-
-    # n_actions = len(imdp.actions)
-    # for sq in pimdp_states:
-    #     for a in imdp.actions:
-    #         row_idx = sq[0]*size_dfa*n_actions + (sq[1]-1)*n_actions + a
-    #         if sq[1] == sink_state or sq[1] == accept_state:
-    #             col_idx = sq[0] * size_dfa + (sq[1] - 1)
-    #             Pmin_new[row_idx, col_idx] = 1.
-    #             Pmax_new[row_idx, col_idx] = 1.
-    #             continue
-    #
-    #         q_prime = delta_(sq[1], dfa, imdp.labels[sq[0]])
-    #         for sqp in pimdp_states:
-    #             # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
-    #             if sqp[1] in q_prime:
-    #                 col_idx = sqp[0]*size_dfa + (sqp[1] - 1)
-    #                 Pmin_new[row_idx, col_idx] = imdp.Pmin[(sq[0]*n_actions) + a, sqp[0]]
-    #                 Pmax_new[row_idx, col_idx] = imdp.Pmax[(sq[0]*n_actions) + a, sqp[0]]
-
-    n_actions = len(imdp.actions)
-    for sq in pimdp_states:
-        for a in imdp.actions:
-            row_idx = sq[0]*size_dfa*n_actions + (sq[1]-1)*n_actions + a
-            if sq[1] == sink_state or sq[1] == accept_state:
-                col_idx = sq[0] * size_dfa + (sq[1] - 1)
-                Pmin_new[row_idx, col_idx] = 1.
-                Pmax_new[row_idx, col_idx] = 1.
-                continue
-
-            q_prime = delta_(sq[1], dfa, imdp.labels[sq[0]])
-            for s in imdp.states:
-                # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
-                col_idx = s*size_dfa + (q_prime[0] - 1)
-                Pmin_new[row_idx, col_idx] = imdp.Pmin[(sq[0]*n_actions) + a, s]
-                Pmax_new[row_idx, col_idx] = imdp.Pmax[(sq[0]*n_actions) + a, s]
-
-    Pmin_new = Pmin_new.tocsr(copy=True)
-    Pmax_new = Pmax_new.tocsr(copy=True)
-
-    pimdp = PIMDPModel(pimdp_states, imdp.actions, Pmin_new, Pmax_new, imdp.labels, acc_labels, sink_labels,
-                       imdp.extents, size_dfa)
-
-    return pimdp
-
-
-def label_states(labels, extents, unsafe_label):
-    state_labels = []
-    dims = len(extents[0])
-    for idx, extent in enumerate(extents):
-        if idx == len(extents) - 1:
-            state_labels.append(unsafe_label)
-            continue
-        possible_labels = []
-        for label in labels:
-            # does this extent fit in any labels
-            in_ranges = False
-            ranges = labels[label]
-            for sub_range in ranges:
-                in_sub_range = True
-                if sub_range is None:
-                    in_ranges = False
-                    break
-                for dim in range(dims):
-                    if not (extent[dim][0] >= sub_range[dim][0] and extent[dim][1] <= sub_range[dim][1]):
-                        in_sub_range = False
-                        break
-                if in_sub_range:
-                    in_ranges = True
-                    break
-
-            if in_ranges:
-                possible_labels.append(label)
-            else:
-                possible_labels.append("!" + label)
-        extent_label = ""
-        for idx_, label in enumerate(possible_labels):
-            if idx_ > 0:
-                extent_label += '∧' + label
-            else:
-                extent_label += label
-        state_labels.append(extent_label)
-
-    return state_labels
-
-
-def satisfies(label, phi):
-    separated_label = label.split('∧')
-    for sub in separated_label:
-        if sub == phi:
-            return True
-    return False
-
-
-def find_q_yes(phi, labels):
-    qyes = []
-
-    for idx, label in enumerate(labels):
-        if satisfies(label, phi):
-            qyes.append(idx)
-
-    return qyes
-
-
-def find_q_no(phi1, phi2, labels):
-    qno = []
-    for idx, label in enumerate(labels):
-        if not (satisfies(label, phi1) or satisfies(label, phi2)):
-            qno.append(idx)
-
-    return qno
-
-
-def bounded_until(imdp:IMDPModel, phi1, phi2, k, imdp_filepath, synthesis_flag=False):
-
-    # Get the Qyes and Qno states
-    Qyes = find_q_yes(phi2, imdp.labels)
-    Qno = find_q_no(phi1, phi2, imdp.labels)
-    Qno.append(len(imdp.states))  # for leaving the space
-
-    # Write them to the file
-    print('Writing IMDP to file')
-    write_imdp_to_file_bounded(imdp, Qyes, Qno, imdp_filepath)
-    # Do verification or synthesis
-    if synthesis_flag:
-        print('Running Synthesis')
-        result_mat = run_imdp_synthesis(imdp_filepath, k, mode1="maximize", mode2="pessimistic")
-    else:
-        print('Running Verification')
-        result_mat = run_imdp_synthesis(imdp_filepath, k, mode1="minimize")
-    # Done
-    return result_mat
-
-
-def write_imdp_to_file_bounded(imdp:IMDPModel, Qyes, Qno, filename):
-    file_ = open(filename, "w")
-    state_num = len(imdp.states) + 1
-    action_num = len(imdp.actions)
-
-    file_.write(f"{state_num}\n")
-    file_.write(f"{action_num}\n")
-
-    num_acc = len(Qyes)
-    file_.write(f"{num_acc}\n")
-    [file_.write(f"{acc_state} ") for acc_state in Qyes]
-    file_.write(f"\n")
-
-    for i in range(state_num):
-        if i not in Qno:
-            for action in imdp.actions:
-                row_idx = i*action_num + action
-                pmax = imdp.Pmax[row_idx].toarray()[0]
-                pmin = imdp.Pmin[row_idx].toarray()[0]
-                ij = [j for j, v in enumerate(pmax) if v > 0.0001]
-                for j in ij:
-                    file_.write(f"{i} {action} {j} {pmin[j]} {pmax[j]}")
-                    if (i < state_num-1) or (j != ij[len(ij)-1]) or (action < action_num-1):
-                        file_.write(f"\n")
-        else:
-            file_.write(f"{i} {0} {i} {1.} {1.}")
-            if i < state_num-1:
-                file_.write(f"\n")
-    file_.close()
-
-
-def write_pimdp_to_file(pimdp:PIMDPModel, filename):
-    file_ = open(filename, "w")
-    state_num = len(pimdp.states) + 1
-    action_num = len(pimdp.actions)
-
-    file_.write(f"{state_num}\n")
-    file_.write(f"{action_num}\n")
-
-    file_.write(f"{int(pimdp.accepting_labels.sum())}\n")  # number of accepting states
-    acc_states = [i for i, a in enumerate(pimdp.accepting_labels) if a > 0]
-    [file_.write(f"{acc_state} ") for acc_state in acc_states]
-    file_.write(f"\n")
-
-    sink_states = [i for i, a in enumerate(pimdp.sink_labels) if a > 0]
-
-    for i in range(state_num):
-        if i not in sink_states:
-            for action in pimdp.actions:
-                row_idx = i*action_num + action
-                pmax = pimdp.Pmax[row_idx].toarray()[0]
-                pmin = pimdp.Pmin[row_idx].toarray()[0]
-                ij = [j for j, v in enumerate(pmax) if v > 0.0001]
-                for j in ij:
-                    file_.write(f"{i} {action} {j} {pmin[j]} {pmax[j]}")
-                    if (i < state_num-1) or (j != ij[len(ij)-1]) or (action < action_num-1):
-                        file_.write(f"\n")
-        else:
-            file_.write(f"{i} {0} {i} {1.} {1.}")
-            if i < state_num-1:
-                file_.write(f"\n")
-    file_.close()
-
-
-def run_imdp_synthesis(imdp_file, k, ep=1e-6, mode1="maximize", mode2="pessimistic"):
-    exe_path = "/usr/local/bin/synthesis"  # Assumes that this program is on the user's path
-    res = subprocess.run([exe_path, mode1, mode2, str(k), str(ep), imdp_file], capture_output=True, text=True)
-    res_mat = res_to_numbers(res.stdout)
-    return res_mat
-
-
-def res_to_numbers(res):
-    res_filter = res.replace("\n", " ")
-    res_split = res_filter.split(" ")
-    num_rows = int(len(res_split)/4)
-
-    res_mat = np.zeros([num_rows, 4])
-    for i in range(num_rows):
-        res_mat[i][0] = int(res_split[i * 4 + 1])
-        res_mat[i][1] = int(res_split[i * 4 + 2])    # action
-        res_mat[i][2] = float(res_split[i * 4 + 3])  # min prob
-        res_mat[i][3] = float(res_split[i * 4 + 4])  # max prob
-
-    return res_mat
-
-
-def which_extent(x, extents):
-    for i, region in enumerate(extents):
-        in_extent = True
-        for j in range(len(x)):
-            if not (region[j][0] <= x[j] <= region[j][1]):
-                in_extent = False
+def extents_in_region(extents, region):
+    # returns a list of indices of extents that are inside the region
+    valid = []
+    for extent_idx, extent in enumerate(extents):
+        in_region = True
+        for idx, k in enumerate(list(extent)):
+            if k[0] < region[idx][0] or k[1] > region[idx][1]:
+                # not in this dimension of the region
+                in_region = False
                 break
-        if in_extent:
-            return i
-    return False
+        if in_region:
+            valid.append(extent_idx)
 
-
-def volumize(region):
-    total_volume = 1
-    for i in range(len(region)):
-        edge = region[i][1] - region[i][0]
-        total_volume *= edge
-    return total_volume
-
-
-def plot_pimdp_results(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refinement, plot_labels, unknown_dyns,
-                       process_dist, min_threshold=0.8, plot_traj=False, x0=None):
-    extents = pimdp.extents
-
-    accept_state = dfa["accept"]
-
-    imdp_dir = global_exp_dir + f"/imdp_{k}"
-    if not os.path.isdir(imdp_dir):
-        os.mkdir(imdp_dir)
-
-    extent_len = len(extents) - 1
-    domain = extents[extent_len]
-
-    fig, ax = plt.subplots(1, 1)
-
-    x_length = domain[0][1] - domain[0][0]
-    y_length = domain[1][1] - domain[1][0]
-    ratio = y_length/x_length
-    fig.set_size_inches(x_length + 1, y_length + ratio)
-
-    Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
-                              (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])
-    x_X, y_X = Domain_Polygon.exterior.xy
-    ax.fill(x_X, y_X, alpha=0.6, fc='r', ec='k')
-
-    # figure out how to plot from the res mat
-    sat_volume = 0
-    sat_regions = []
-    unsat_volume = 0
-    unsat_regions = []
-    maybe_volume = 0
-    maybe_regions = []
-    q_refine = []
-
-    i = 0
-    for sq in pimdp.states:
-        max_prob = res_mat[i][3]
-        min_prob = res_mat[i][2]
-        if sq[1] != 1:
-            i += 1
-            continue
-
-        if min_prob >= min_threshold:
-            # yay this region satisfied
-            sat_volume += volumize(extents[sq[0]])
-            sat_regions.append(sq[0])
-            # q_refine.append([sq[0], i])
-        elif max_prob < min_threshold:
-            unsat_volume += volumize(extents[sq[0]])
-            unsat_regions.append(sq[0])
-        else:
-            maybe_volume += volumize(extents[sq[0]])
-            maybe_regions.append(sq[0])
-            q_refine.append([sq[0], i])
-        i += 1
-
-    total_volume = sat_volume + unsat_volume + maybe_volume
-
-    print(f"Qyes = {len(sat_regions)}, Qno = {len(unsat_regions)}, Q? = {len(maybe_regions)}")
-    print(f"Volume percentage: Qyes = {sat_volume/total_volume}, Qno = {unsat_volume/total_volume}, "
-          f"Q? = {maybe_volume/total_volume}")
-
-    plotted_list = {}
-    for idx in maybe_regions:
-        region = extents[idx]
-
-        x_dims = f"{(region[0], region[1])}"
-        if x_dims in list(plotted_list):
-            continue
-        plotted_list[x_dims] = 1
-
-        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
-                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.5, fc='y', ec='y')
-
-    # plot yes in green
-    plotted_sat = {}
-    for idx in sat_regions:
-        region = extents[idx]
-
-        x_dims = f"{(region[0], region[1])}"
-        if x_dims in list(plotted_list):
-            continue
-        plotted_sat[x_dims] = 1
-
-        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
-                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.5, fc='g', ec='g')
-
-    goal_set = plot_labels['goal']
-    unsafe_set = plot_labels['obs']
-
-    for area in goal_set:
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='None', ec='k')
-
-    for area in unsafe_set:
-        if area is None:
-            continue
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='k', ec='k')
-
-    plt.xlabel('$x_{1}$', fontdict={"size": 15})
-    plt.ylabel('$x_{2}$', fontdict={"size": 15})
-    plt.show(block=False)
-    plt.savefig(imdp_dir + f'/synthesis_results_{k}_{refinement}.png')
-
-    if plot_traj:
-
-        np.random.seed(0)
-        # pick a random sat region, get a random state in that region and evolve traj until it's accepting
-        for k in range(2):
-            rand_idx = np.random.randint(0, len(sat_regions))
-            start_idx = sat_regions[rand_idx]
-            q_init = delta_(1, dfa, pimdp.labels[start_idx])
-            sq = (start_idx, q_init[0])
-            start_region = extents[start_idx]
-            if x0 is not None:
-                x = x0[k]
-            else:
-                x = [np.random.uniform(start_region[k][0], start_region[k][1]) for k in range(len(start_region))]
-                x = np.array(x)
-
-            print(np.shape(x))
-            traj_x = [x[0]]
-            traj_y = [x[1]]
-            # find what action this sq uses, evolve traj, find which extent it's in and repeat
-            sig = process_dist["sig"]
-            steps = 0
-            while True:
-                i = pimdp.states.index(sq)
-                action = int(res_mat[i][1])
-                true_dyn = unknown_dyns[action]
-                x_plus = true_dyn(x)
-                noise = np.random.multivariate_normal(process_dist["mu"], np.diag(sig)).transpose()
-                x_plus += noise
-                next_extent = which_extent(x_plus, pimdp.extents)
-
-                q_prime = delta_(sq[1], dfa, pimdp.labels[sq[0]])
-                dfa_state = q_prime[0]
-
-                # transition from (x, q) -(a)-> (x', q') if x -(a)-> x' and q' = del(q, L(x))
-                if next_extent is False:
-                    print('Not in an extent...')
-                    print(x_plus)
-                    break
-
-                sq = (next_extent, dfa_state)
-                if sq[1] == accept_state:
-                    break
-                x = x_plus
-                traj_x.append(x[0])
-                traj_y.append(x[1])
-                steps += 1
-                if steps > 20:
-                    break
-            if k == 0:
-                plt.plot(traj_x, traj_y, 'bo--')
-            else:
-                plt.plot(traj_x, traj_y, 'ko--')
-
-        plt.savefig(imdp_dir + f'/traj_{k}_{refinement}.png')
-
-    return q_refine
-
-
-def plot_pimdp_probs(res_mat, pimdp:PIMDPModel, dfa, global_exp_dir, k, refinement, plot_labels):
-    extents = pimdp.extents
-
-    accept_state = dfa["accept"]
-
-    imdp_dir = global_exp_dir + f"/imdp_{k}"
-    if not os.path.isdir(imdp_dir):
-        os.mkdir(imdp_dir)
-
-    extent_len = len(extents) - 1
-    domain = extents[extent_len]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2)
-
-    Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
-                              (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])
-    x_X, y_X = Domain_Polygon.exterior.xy
-    ax1.fill(x_X, y_X, alpha=1, fc='w', ec='k')
-    ax2.fill(x_X, y_X, alpha=1, fc='w', ec='k')
-
-    # figure out how to plot from the res mat
-
-    maybe_regions = []
-
-    i = 0
-    for sq in pimdp.states:
-        if sq[1] != 1:
-            i += 1
-            continue
-
-        maybe_regions.append((sq[0], i))
-        i += 1
-
-    plotted_list = {}
-    for idx in maybe_regions:
-        region = extents[idx[0]]
-        i = idx[1]
-        max_prob = res_mat[i][3]
-        min_prob = res_mat[i][2]
-
-        x_dims = f"{(region[0], region[1])}"
-        if x_dims in list(plotted_list):
-            continue
-        plotted_list[x_dims] = 1
-
-        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
-                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax1.fill(x_R, y_R, alpha=max_prob, fc='g', ec='None')
-        ax2.fill(x_R, y_R, alpha=min_prob, fc='g', ec='None')
-
-    goal_set = plot_labels['goal']
-    unsafe_set = plot_labels['obs']
-
-    for area in goal_set:
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax1.fill(x_R, y_R, alpha=1, fc='None', ec='k')
-        ax2.fill(x_R, y_R, alpha=1, fc='None', ec='k')
-
-    for area in unsafe_set:
-        if area is None:
-            continue
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax1.fill(x_R, y_R, alpha=1, fc='k', ec='k')
-        ax2.fill(x_R, y_R, alpha=1, fc='k', ec='k')
-
-    # plt.xlabel('$x_{1}$', fontdict={"size": 15})
-    # plt.ylabel('$x_{2}$', fontdict={"size": 15})
-    ax2.title.set_text('min prob')
-    plt.show(block=False)
-    plt.savefig(imdp_dir + f'/synthesis_bounds_{k}_{refinement}.png')
-
-
-def plot_verification_results(res_mat, imdp:IMDPModel, global_exp_dir, k, refinement, region_labels, unknown_dyns,
-                              process_dist, plot_traj=False, min_threshold=0.8):
-    extents = imdp.extents
-
-    imdp_dir = global_exp_dir + f"/imdp_{k}"
-    if not os.path.isdir(imdp_dir):
-        os.mkdir(imdp_dir)
-
-    extent_len = len(extents) - 1
-    domain = extents[extent_len]
-
-    fig, ax = plt.subplots(1, 1)
-
-    x_length = domain[0][1] - domain[0][0]
-    y_length = domain[1][1] - domain[1][0]
-    ratio = y_length/x_length
-    fig.set_size_inches(x_length + 1, y_length + 2*ratio)
-
-    Domain_Polygon = Polygon([(domain[0][0], domain[1][0]), (domain[0][0], domain[1][1]),
-                              (domain[0][1], domain[1][1]), (domain[0][1], domain[1][0])])
-    x_X, y_X = Domain_Polygon.exterior.xy
-    ax.fill(x_X, y_X, alpha=0.6, fc='r', ec='k')
-
-    # figure out how to plot from the res mat
-    sat_volume = 0
-    sat_regions = []
-    unsat_volume = 0
-    unsat_regions = []
-    maybe_volume = 0
-    maybe_regions = []
-    q_refine = []
-    for i in range(extent_len):
-        max_prob = res_mat[i][3]
-        min_prob = res_mat[i][2]
-
-        if min_prob >= min_threshold:
-            # yay this region satisfied
-            sat_volume += volumize(extents[i])
-            sat_regions.append(i)
-            # q_refine.append(i)
-        elif max_prob < min_threshold:
-            unsat_volume += volumize(extents[i])
-            unsat_regions.append(i)
-        else:
-            maybe_volume += volumize(extents[i])
-            maybe_regions.append(i)
-            q_refine.append(i)
-
-    total_volume = sat_volume + unsat_volume + maybe_volume
-
-    print(f"Qyes = {len(sat_regions)}, Qno = {len(unsat_regions)}, Q? = {len(maybe_regions)}")
-    print(f"Volume percentage: Qyes = {sat_volume/total_volume}, Qno = {unsat_volume/total_volume}, "
-          f"Q? = {maybe_volume/total_volume}")
-
-    # don't need to plot unsat, plot maybe in light red
-    plotted_list = {}
-    for idx in maybe_regions:
-        region = extents[idx]
-
-        x_dims = f"{(region[0], region[1])}"
-        if x_dims in list(plotted_list):
-            continue
-        plotted_list[x_dims] = 1
-
-        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
-                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.2, fc='r', ec='None')
-
-    # plot yes in green
-    plotted_list = {}
-    for idx in sat_regions:
-        region = extents[idx]
-
-        x_dims = f"{(region[0], region[1])}"
-        if x_dims in list(plotted_list):
-            continue
-        plotted_list[x_dims] = 1
-
-        region_polygon = Polygon([(region[0][0], region[1][0]), (region[0][0], region[1][1]),
-                                  (region[0][1], region[1][1]), (region[0][1], region[1][0])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='w', ec='None')
-        ax.fill(x_R, y_R, alpha=0.2, fc='g', ec='None')
-
-    goal_set = region_labels['a']
-    unsafe_set = region_labels['b']
-
-    for area in goal_set:
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='None', ec='k')
-
-    for area in unsafe_set:
-        if area is None:
-            continue
-        region_polygon = Polygon(
-            [(area[0][0], area[1][0]), (area[0][1], area[1][0]),
-             (area[0][1], area[1][1]), (area[0][0], area[1][1])])
-        x_R, y_R = region_polygon.exterior.xy
-        ax.fill(x_R, y_R, alpha=1, fc='k', ec='k')
-
-    plt.xlabel('$x_{1}$', fontdict={"size": 15})
-    plt.ylabel('$x_{2}$', fontdict={"size": 15})
-    plt.show(block=False)
-    plt.savefig(imdp_dir + f'/synthesis_results_{k}_{refinement}.png')
-
-    if plot_traj:
-        np.random.seed(0)
-        # pick a random sat region, get a random state in that region and evolve traj until it's accepting
-        for k in range(3):
-            rand_idx = np.random.randint(0, len(sat_regions))
-            start_idx = sat_regions[rand_idx]
-            sq = start_idx
-            start_region = extents[start_idx]
-            x = [np.random.uniform(start_region[k][0], start_region[k][1]) for k in range(len(start_region))]
-            x = np.array(x)
-
-            traj = [x]
-            # find what action this sq uses, evolve traj, find which extent it's in and repeat
-            sig = process_dist["sig"]
-            steps = 0
-            while not in_goal(x, goal_set):
-                i = imdp.states.index(sq)
-                action = res_mat[i][1]
-                true_dyn = unknown_dyns[action]
-                x_plus = true_dyn(x)
-                noise = np.random.multivariate_normal(process_dist["mu"], np.diag(sig)).transpose()
-                x_plus += noise
-                next_extent = which_extent(x_plus, imdp.extents)
-                if next_extent is False:
-                    break
-
-                sq = next_extent
-                x = x_plus
-                traj.append(x)
-                steps += 1
-                if steps > 20:
-                    break
-
-            plt.plot(traj[0, :], traj[1, :], 'ko--')
-
-        plt.savefig(imdp_dir + f'/traj_{k}_{refinement}.png')
-
-    return q_refine
-
-
-def in_goal(x, goal_set):
-    for area in goal_set:
-        in_goal_ = True
-        for dim in range(len(x)):
-            if not (area[dim][0] <= x[dim] <= area[dim][1]):
-                in_goal_ = False
-        if in_goal_:
-            return True
-    return False
-
-
-
-############################################################################################
-#  Transition probabilities
-############################################################################################
-
-
-def parallel_erf(extents, mode_info, num_dims, pre_idx, mode, sigs, threads=8):
-    num_extents = len(extents)
-
-    mean_info = mode_info[0][pre_idx]
-    sig_info = mode_info[1][pre_idx]
-
-    check_idx = get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs)
-    check_idx.append(num_extents - 1)
-
-    pool = mp.Pool(threads)
-    results = pool.starmap(erf_transitions, [(num_extents, num_dims, sigs, mean_info, sig_info,
-                                              post_idx, extents[post_idx]) for post_idx in check_idx])
-    pool.close()
-
-    max_out = np.zeros(num_extents)
-    min_out = np.zeros(num_extents)
-    for idx, res in enumerate(results):
-        max_out[check_idx[idx]] = res[1]
-        min_out[check_idx[idx]] = res[0]
-
-    return min_out, max_out
-
-
-def get_reasonable_extents(extents, mean_info, sig_info, num_dims, sigs):
-    possible_intersect = {}
-    intersect_list = []
-    what_sig = 3  # be within 3 standard deviations of the mean
-    for dim in range(num_dims):
-        possible_intersect[dim] = []
-        upper_sig = sig_info[dim][1]  # this is a std deviation
-        upper_sig += np.sqrt(sigs[dim])
-
-        lower_bound = mean_info[dim][0] - what_sig * upper_sig
-        upper_bound = mean_info[dim][1] + what_sig * upper_sig
-        for idx, region in enumerate(extents):
-            if region[dim][1] > lower_bound and region[dim][0] < upper_bound:
-                # if the 3*sigma lower bound is less than the higher value of the region and the 3*sigma upper
-                # bound is greater than the lower bound of the region then these might have probabilities
-                # higher than like 0.001
-                possible_intersect[dim].extend([idx])
-        intersect_list.append(list(set(possible_intersect[dim])))
-
-    intersects_ = list(set.intersection(*map(set, intersect_list)))
-
-    return intersects_
-
-
-def erf_transitions(num_extents, num_dims, sigs, mean_info, sig_info, post_idx, post_region):
-    # check if these two regions intersect
-    p_min = 1
-    p_max = 1
-    for dim in range(num_dims):
-        lower_mean = mean_info[dim][0]
-        upper_mean = mean_info[dim][1]
-
-        upper_sigma = sig_info[dim][1] + np.sqrt(sigs[dim])  # this is a std deviation
-        lower_sigma = sig_info[dim][0]
-
-        post_bounds = post_region[dim]
-        post_low = post_bounds[0]
-        post_up = post_bounds[1]
-        post_mean = post_low + (post_up - post_low) / 2
-
-        # check to see transition probability to this region
-        if lower_mean > post_up:
-            # post entirely to the right of the pre
-            # max prob is with the lowest mean
-            p_max *= max(prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
-                         prob_via_erf(post_up, post_low, lower_mean, lower_sigma))
-
-            # min prob is with the largest mean
-            p_min *= min(prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
-                         prob_via_erf(post_up, post_low, upper_mean, lower_sigma))
-        elif upper_mean < post_low:
-            # post entirely to the left of the pre
-            # max prob is with the largest mean
-            p_max *= max(prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
-                         prob_via_erf(post_up, post_low, upper_mean, lower_sigma))
-
-            # min prob is with the lowest mean
-            p_min *= min(prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
-                         prob_via_erf(post_up, post_low, lower_mean, lower_sigma))
-        else:
-            # post intersects with pre
-            # find point on post mean that is closest to the center of the pre with the smallest sigma
-
-            if (lower_mean < post_mean) and (upper_mean > post_mean):
-                middle_mean = post_mean
-            elif upper_mean < post_mean:
-                # upper bound is closer to the center
-                middle_mean = upper_mean
-            else:
-                # lower bound is closer to the center
-                middle_mean = lower_mean
-
-            p_max *= prob_via_erf(post_up, post_low, middle_mean, lower_sigma)
-
-            # min prob will be one of the four combos of largest/smallest mean/sigma
-            p_min *= min([prob_via_erf(post_up, post_low, lower_mean, lower_sigma),
-                          prob_via_erf(post_up, post_low, upper_mean, upper_sigma),
-                          prob_via_erf(post_up, post_low, lower_mean, upper_sigma),
-                          prob_via_erf(post_up, post_low, upper_mean, lower_sigma)])
-
-    if post_idx == num_extents - 1:
-        p_min_ = p_min
-        p_min = 1 - p_max
-        p_max = 1 - p_min_
-
-    if p_min < 1e-4:
-        p_min = 0
-    if p_max < 1e-4:
-        p_max = 0
-
-    return [p_min, p_max]
-
-
-def prob_via_erf(lb, la, mean, sigma):
-    # Pr(la <= X <= lb) when X ~ N(mean, sigma)
-    return 0.5 * (math.erf((lb - mean) / (math.sqrt(2) * sigma)) - math.erf((la - mean) / (math.sqrt(2) * sigma)))
-
+    return valid

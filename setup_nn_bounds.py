@@ -6,9 +6,7 @@
 from generic_fnc import *
 from dynamics_script import *
 from gp_scripts import *
-from space_discretize_scripts import discretize_space_list
-# from gp_parallel import *
-
+from space_discretize_scripts import discretize_space_list, merge_extent_fnc
 from juliacall import Main as jl
 jl.seval("using PosteriorBounds")
 theta_vectors = jl.seval("PosteriorBounds.theta_vectors")
@@ -18,6 +16,7 @@ experiment_type = "/deep_kernel_synthesis"
 exp_dir = EXPERIMENT_DIR + experiment_type
 crown_dir = EXPERIMENT_DIR + "/alpha-beta-CROWN/complete_verifier"
 
+# define some standard variables, may be changed depending on the experiment
 reuse_regions = False
 use_regular_gp = False
 
@@ -34,17 +33,19 @@ known_fnc = None
 use_scaling = False
 nn_epochs = 1000
 nn_lr = 1e-4
+merge_extents = False
+merge_bounds = None
+grid_len = 1
 
-refinement = 0
+refinement = 0  # don't change this
 
 threads = int(sys.argv[1])
 experiment_number = int(sys.argv[2])
 
 # ======================================================================
-# 0. Setup space and dynamics
+# 0. Define space, dynamics, and how much data to use
 # ======================================================================
 
-grid_len = 1
 
 if experiment_number == 0:
     # 2D linear experiment, 3 modes, 200 data points per mode
@@ -82,7 +83,7 @@ elif experiment_number == 3:
     global_dir_name = "dubins_sys"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
-    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
     GP_data_points = 400
     nn_epochs = 3000
     width_1 = 128
@@ -91,19 +92,23 @@ elif experiment_number == 3:
     epochs = 600
     use_scaling = True
     learning_rate = 1e-4
+    merge_extents = True
+    merge_bounds = {"unsafe": [[[4., 6], [0., 1.], [-0.5, 0.5]]], "goal": [[[8., 10.], [0., 1.], [-0.5, 0.5]]]}
 elif experiment_number == 4:
     # 3D experiment, 7 modes, 400 data points per mode
     global_dir_name = "dubins_sys_gp"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
-    X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-2., 2.]}
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
     use_regular_gp = True
     GP_data_points = 400
     epochs = 600
+    merge_extents = True
+    merge_bounds = {"unsafe": [[[4., 6], [0., 1.], [-0.5, 0.5]]], "goal": [[[8., 10.], [0., 1.], [-0.5, 0.5]]]}
 elif experiment_number == 5:
     # 5D experiment, 3 modes, 1000 data points per mode
     global_dir_name = "sys_5d"
-    unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2]  # , g_5d_mode3]
+    unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2]
     process_dist = {"mu": [0., 0., 0., 0., 0.], "sig": [0.01, 0.01, 0.0001, 0.0001, 0.0001], "dist": "multi_norm",
                     "theta_dim": [2, 3, 4]}
     X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.3, 0.3], "x4": [-0.3, 0.3], "x5": [-0.3, 0.3]}
@@ -113,21 +118,10 @@ elif experiment_number == 5:
     num_layers = 2
     use_scaling = True
     nn_epochs = 4000
-elif experiment_number == 60:
-    # 3D experiment, 5 modes, 1000 data points per mode
-    global_dir_name = "dubins_sys_expanded"
-    # process_dist = {"mu": [0., 0., 0.], "sig": [0.01, 0.01, 0.0001], "dist": "multi_norm", "theta_dim": [2]}
-    process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
-    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
-    X = {"x1": [5., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
-    GP_data_points = 400
-    nn_epochs = 3000
-    width_1 = 128
-    width_2 = 128
-    num_layers = 2
-    epochs = 600
-    use_scaling = True
-    learning_rate = 1e-4
+    merge_extents = True
+    merge_bounds = {"unsafe": [[[-0.75, 0.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]],
+                               [[0.5, 2.0], [-0.75, 0.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]]],
+                    "goal": [[[1.0, 2.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]]]}
 else:
     exit()
 
@@ -148,12 +142,12 @@ grid_size, large_grid = get_grid_info(X, grid_len)
 # Neural Network dimensions and training info
 d = len(X)  # dimensionality
 out_dim = d
-
 network_dims = [d, width_1, width_2, out_dim]
 
 extents = discretize_space_list(X, grid_size)
-# knowledge of the space may allow some extents to be merged, do that with unsafe states certainly
-
+if merge_extents:
+    # knowledge of the space may allow some extents to be merged, do this now to remove unnecessary states
+    extents = merge_extent_fnc(extents, merge_bounds, d)
 
 filename = global_exp_dir + f"/extents_{refinement}"
 np.save(filename, np.array(extents))
@@ -224,7 +218,7 @@ toc = time.perf_counter()
 print(f"It took {toc - tic} seconds to train all the Deep Kernel GP models.")
 
 # =====================================================================================
-# 2. Get posteriors of NN and save to numpy files
+# 2. Get posteriors of NN and save as numpy files
 # =====================================================================================
 
 num_modes = len(modes)

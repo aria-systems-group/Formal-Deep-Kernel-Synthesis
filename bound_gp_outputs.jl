@@ -7,7 +7,27 @@ using SharedArrays
 @everywhere include("quad_prog_bnb.jl")
 @pyimport numpy
 
-function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_regions)
+@everywhere function matching_label(test_label, compare_label)
+    if isnothing(compare_label)
+        return false
+    end
+    if test_label == "true"
+        # any observation satisfies true
+        return true
+    end
+    separated_test = Set(split(test_label, '∧'))
+    separated_compare = Set(split(compare_label, '∧'))
+    if issubset(separated_test, separated_compare)
+        return true
+    end
+    if issubset(separated_compare, separated_test)
+        return true
+    end
+    return false
+end
+
+
+function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_regions, label_fn, skip_labels)
     nn_bounds_dir = global_exp_dir * "/nn_bounds"
     for mode in 1:num_modes
         if isfile(global_exp_dir*"/complete_$mode" * "_$refinement.npy") && reuse_regions
@@ -65,53 +85,61 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                     x_L = linear_bounds[idx+1, 1, :]
                     x_U = linear_bounds[idx+1, 2, :]
 
-                    # get lower mean bounds
-                    mean_info_l = PosteriorBounds.compute_μ_bounds_bnb(gp, x_L, x_U, theta_vec_2,
-                                                                       theta_vec; max_iterations=100,
-                                                                       bound_epsilon=1e-3, max_flag=false,
-                                                                       prealloc=nothing)
-
-                    # get upper mean bounds, negating alpha allows for the "min" to be the -max
-                    mean_info_u = PosteriorBounds.compute_μ_bounds_bnb(gp_neg, x_L, x_U, theta_vec_2,
-                                                                       theta_vec; max_iterations=100,
-                                                                       bound_epsilon=1e-3, max_flag=false,
-                                                                       prealloc=nothing)
-
-                    mean_bound[idx+1, dim, 1] = mean_info_l[2]
-                    mean_bound[idx+1, dim, 2] = -mean_info_u[2]
-
-                    # get upper bounds on variance
-                    sig_check = sig_bound[idx+1, dim, 2]
-                    if refinement > 0 && sig_check <= 0*sqrt(dim_sig)
-                        # if previous sigma bounds were already small, don't waste time finding better ones
-                        sig_upper = sig_check
-                        sig_lower = sig_bound[idx+1, dim, 1]
+                    if any([matching_label(label_fn[idx+1], skip_) for skip_ in skip_labels])
+                        # don't actually care about the bounds on this region, just put 1s and 0s
+                        mean_bound[idx+1, dim, 1] = 0.0
+                        mean_bound[idx+1, dim, 2] = 1.0
+                        sig_bound[idx+1, dim, 1] = 0.0
+                        sig_bound[idx+1, dim, 2] = 1.0
                     else
-                        sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
-                                                                    cK_inv_scaled; max_iterations=20,
-                                                                    bound_epsilon=1e-3, min_flag=false,
-                                                                    prealloc=nothing)
 
-                        sig_upper = sqrt(sig_info[3])  # this is a std deviation
-                        sig_low = sqrt(sig_info[2])
-                        if abs(sig_upper-sig_low) > sqrt(1e-3)
-                            # this means it didn't converge properly, use expensive quadratic program to find solution
-                            outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
-                                                max_iterations=20, bound_epsilon=sqrt(1e-3))
+                        # get lower mean bounds
+                        mean_info_l = PosteriorBounds.compute_μ_bounds_bnb(gp, x_L, x_U, theta_vec_2,
+                                                                           theta_vec; max_iterations=100,
+                                                                           bound_epsilon=1e-3, max_flag=false,
+                                                                           prealloc=nothing)
 
-                            sig_upper = outputs[3]  # this is a std deviation
+                        # get upper mean bounds, negating alpha allows for the "min" to be the -max
+                        mean_info_u = PosteriorBounds.compute_μ_bounds_bnb(gp_neg, x_L, x_U, theta_vec_2,
+                                                                           theta_vec; max_iterations=100,
+                                                                           bound_epsilon=1e-3, max_flag=false,
+                                                                           prealloc=nothing)
+
+                        mean_bound[idx+1, dim, 1] = mean_info_l[2]
+                        mean_bound[idx+1, dim, 2] = -mean_info_u[2]
+
+                        # get upper bounds on variance
+                        sig_check = sig_bound[idx+1, dim, 2]
+                        if refinement > 0 && sig_check <= 0*sqrt(dim_sig)
+                            # if previous sigma bounds were already small, don't waste time finding better ones
+                            sig_upper = sig_check
+                            sig_lower = sig_bound[idx+1, dim, 1]
+                        else
+                            sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+                                                                        cK_inv_scaled; max_iterations=20,
+                                                                        bound_epsilon=1e-3, min_flag=false,
+                                                                        prealloc=nothing)
+
+                            sig_upper = sqrt(sig_info[3])  # this is a std deviation
+                            sig_low = sqrt(sig_info[2])
+                            if abs(sig_upper-sig_low) > sqrt(1e-3)
+                                # this means it didn't converge properly, use expensive quadratic program to find solution
+                                outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
+                                                    max_iterations=20, bound_epsilon=sqrt(1e-3))
+
+                                sig_upper = outputs[3]  # this is a std deviation
+                            end
+                            # TODO, figure out why this takes forever
+    #                         sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+    #                                                                     cK_inv_scaled; max_iterations=10,
+    #                                                                     bound_epsilon=1e-2, min_flag=true,
+    #                                                                     prealloc=nothing)
+                            sig_lower = min(sig_low, sig_upper)
                         end
-                        # TODO, figure out why this takes forever
-#                         sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
-#                                                                     cK_inv_scaled; max_iterations=10,
-#                                                                     bound_epsilon=1e-2, min_flag=true,
-#                                                                     prealloc=nothing)
-                        sig_lower = min(sig_low, sig_upper)
+
+                        sig_bound[idx+1, dim, 1] = sig_lower
+                        sig_bound[idx+1, dim, 2] = sig_upper
                     end
-
-                    sig_bound[idx+1, dim, 1] = sig_lower
-                    sig_bound[idx+1, dim, 2] = sig_upper
-
                 end
             end
         end
