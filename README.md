@@ -31,6 +31,7 @@ pkg> add Ipopt
 pkg> add PyCall
 pkg> add SpecialFunctions
 pkg> add Plots
+pkg> add IterTools
 pkg> add ProgressBars
 pkg> add https://github.com/aria-systems-group/PosteriorBounds.jl
 ```

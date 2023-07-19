@@ -27,9 +27,18 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
     global maybe_volume = 0
     maybe_regions = []
     q_refine = []
-    for i in 1:length(maxPrs)-1
+#     maxPrs = []
+#     minPrs = []
+    for i in 1:size(extents)[1]-1
         max_prob = maxPrs[i]
         min_prob = minPrs[i]
+
+#         i_pimdp = (i-1)*num_dfa_states + 1
+#         max_prob = indVmax[i_pimdp]
+#         min_prob = indVmin[i_pimdp]
+#         push!(maxPrs, max_prob)
+#         push!(minPrs, min_prob)
+
         if max_prob < min_prob
             # this may happen if synthesis is run with a convergence value > 1e-6
             max_prob = min_prob
@@ -136,14 +145,28 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
                             backgroundcolor=128)
 
     # Plot the cells
-    for i in unsat_regions
-        plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
-    end
+    plot_cell_verify(extents[end, :, :], 0.0, 0.0, min_threshold, state_outlines_flag=state_outlines_flag)
+
+    plotted_xy = []
     for i in maybe_regions
-        plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+        xy = extents[i, 1:2, :]
+        if any([xy == plotted_xy[idx] for idx in 1:length(plotted_xy)])
+            continue
+        else
+            plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+            push!(plotted_xy, xy)
+        end
     end
+
+    plotted_xy = []
     for i in sat_regions
-        plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+        xy = extents[i, :, :]
+        if any([xy == plotted_xy[idx] for idx in 1:length(plotted_xy)])
+            continue
+        else
+            plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+            push!(plotted_xy, xy)
+        end
     end
     plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
 
@@ -172,7 +195,27 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
     if !isnothing(x0)
         @info "Generating trajectories..."
         # generate trajectories for each initial state in the x0 array
-        sizeQ = length(dfa["states"])
+        dfa_states = sort(dfa["states"])
+        states_sans_ends = copy(dfa_states)
+        dfa_acc_state = dfa["accept"]
+        dfa_sink_state = dfa["sink"]
+
+        sizeQ = length(dfa_states)
+        if !isnothing(dfa_acc_state)
+            sizeQ -= 1
+            filter!(x -> x != dfa_acc_state, states_sans_ends)
+        end
+
+        if !isnothing(dfa_sink_state)
+            sizeQ -= 1
+            filter!(x -> x != dfa_sink_state, states_sans_ends)
+        end
+
+        dfa_num_map = Dict()
+        for i in 1:length(states_sans_ends)
+            dfa_num_map[states_sans_ends[i]] = i
+        end
+
         max_steps = 1000
         for initial_state in x0
             x_vec = [initial_state[1]]
@@ -184,7 +227,7 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
             traj_done = false
             steps = 1
             while !traj_done
-                row_idx = (s-1)*sizeQ + (q)
+                row_idx = (s-1)*sizeQ + (dfa_num_map[q])
                 action = floor(Int, policy[row_idx])
                 f = modes[action]
                 x = f(x)
@@ -196,12 +239,12 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
                 end
                 q = delta_(q, dfa, pimdp.labels[s])
 
-                if q == dfa["accept"]
+                if q == dfa_acc_state
                     @info "Trajectory is successful!"
                     append!(x_vec, [x[1]])
                     append!(y_vec, [x[2]])
                     traj_done = true
-                elseif q == dfa["sink"]
+                elseif q == dfa_sink_state
                     @info "Trajectory violates the specification D:"
                     traj_done = true
                 elseif steps > max_steps
@@ -260,15 +303,6 @@ function plot_cell(extent, prob_value; state_outlines_flag=false, color=:black)
     plot!(shape, color=color, fillalpha=1-prob_value, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
 end
 
-
-function plot_cell_mkII(extent, prob_value, min_threshold; state_outlines_flag=false, color=:black)
-    x = [extent[1, 1], extent[1, 1], extent[1, 2], extent[1, 2]]
-    y = [extent[2, 1], extent[2, 2], extent[2, 2], extent[2, 1]]
-    shape = Plots.Shape(x, y)
-    linealpha = state_outlines_flag ? 1.0 : 0.0
-    fillalpha = (prob_value >= min_threshold) ? 1.0 : 0.0
-    plot!(shape, color=color, fillalpha=fillalpha, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
-end
 
 function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; state_outlines_flag=false)
     if max_prob_value < min_prob_value

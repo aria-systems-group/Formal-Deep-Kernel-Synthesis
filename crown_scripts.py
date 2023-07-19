@@ -67,9 +67,24 @@ def setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, us
     yaml.dump(data, file)
 
 
-def run_dkl_crown_parallel(region_area, crown_dir, global_dir_name, d, mode, dim, region_idx):
+def run_dkl_crown_parallel(region_area, crown_dir, global_dir_name, d, mode, dim, region_idx, merged):
     x_min = [k[0] for k in list(region_area)]
     x_max = [k[1] for k in list(region_area)]
+
+    if merged is not None:
+        merge_names = list(merged)
+        for name in merge_names:
+            areas = merged[name]
+            for subset in areas:
+                if region_area == subset:
+                    lA = np.identity(d).reshape(1, d, d)
+                    uA = np.identity(d).reshape(1, d, d)
+                    l_bias = np.zeros(d).reshape(1, d)
+                    u_bias = np.zeros(d).reshape(1, d)
+                    post_xmin = np.array(x_min)
+                    post_xmax = np.array(x_max)
+                    linear_transform = (lA, uA, l_bias, u_bias, post_xmin, post_xmax)
+                    return linear_transform
 
     file_addon = simple_box_filename(x_max, x_min)
 

@@ -68,7 +68,7 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
         if use_scaling:
             if out_dim == 5:
                 # y_mini = scaling_fnc(x_mini)
-                y_mini = scaling_fnc(y_mini, dx=8., dy=8., dz=2.)
+                y_mini = scaling_fnc(y_mini, dx=10., dy=10., dz=4.)
             if out_dim == 3:
                 y_mini = scaling_fnc(y_mini, dx=10., dy=2.)
             else:
@@ -456,7 +456,8 @@ def dkl_load(file_name_base, dkl_models, all_data, use_reLU, num_layers, network
 
 
 def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global_dir, exp_dir, linear_bounds_info,
-                                    linear_transform_m, linear_transform_b, threads=8, use_regular_gp=False):
+                                    linear_transform_m, linear_transform_b, threads=8, use_regular_gp=False,
+                                    merged=None):
     # This function does parallel calls to CROWN to get bounds on the NN output over input regions
     extent_len = len(extents)
     if not use_regular_gp:
@@ -466,7 +467,7 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
         dim_ = 0
         pool = mp.Pool(threads)
         results = pool.starmap(run_dkl_crown_parallel, [(extents[idx], crown_dir, global_dir, nn_out_dim, mode, dim_,
-                                                         idx) for idx in range(extent_len)])
+                                                         idx, merged) for idx in range(extent_len)])
         pool.close()
 
         # store the results

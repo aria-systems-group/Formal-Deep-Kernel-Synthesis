@@ -209,16 +209,13 @@ def loss_function_theta(unknown_dyn_model, y_data, x_data):
 
 
 def get_grid_info(X, grid_len):
-    large_grid = {k: X[k][1] - X[k][0] for k in list(X)}  # essentially a placeholder for local gps
+    large_grid = {k: X[k][1] - X[k][0] for k in list(X)}  # essentially a placeholder
     if len(X) < 3:
         grid_size = {k: grid_len for k in list(X)}
     elif len(X) == 3:
-        # grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
         grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
     elif len(X) == 5:
-        # grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.15, "x4": 0.15, "x5": 0.15}
-        # grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.15, "x4": 0.15, "x5": 0.15}
-        grid_size = {"x1": 0.2, "x2": 0.2, "x3": 0.1, "x4": 0.1, "x5": 0.1}
+        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.1, "x4": 0.1, "x5": 0.1}
     else:
         print("You need to define a grid size for this dimensionality")
         exit()

@@ -248,7 +248,8 @@ for mode in modes:
                                                                                      lin_bounds,
                                                                                      linear_trans_m, linear_trans_b,
                                                                                      threads=threads,
-                                                                                     use_regular_gp=use_regular_gp)
+                                                                                     use_regular_gp=use_regular_gp,
+                                                                                     merged=merge_bounds)
         print(f"Finished bounding the NN for mode {mode+1}")
     else:
         if mode == 0:

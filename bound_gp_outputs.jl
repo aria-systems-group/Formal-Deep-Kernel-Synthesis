@@ -31,7 +31,7 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
     nn_bounds_dir = global_exp_dir * "/nn_bounds"
     for mode in 1:num_modes
         if isfile(global_exp_dir*"/complete_$mode" * "_$refinement.npy") && reuse_regions
-            @info "moving to next mode"
+            @info "Reusing prior bounds for mode $mode"
             continue
         end
 
@@ -45,14 +45,14 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
             sig_bound = SharedArray(zeros(num_regions, num_dims, 2))
         end
 
-        linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$mode"*"_$refinement.npy")
+        linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_$(mode)_$(refinement).npy")
         convert(SharedArray, linear_bounds)
 
         mode_runtime = @elapsed begin
             for dim in 1:(num_dims::Int)
                 dim_sig = dyn_noise[dim]
                 # load all the data for this mode
-                dim_region_filename = nn_bounds_dir * "/linear_bounds_$mode" * "_1" * "_$dim"
+                dim_region_filename = nn_bounds_dir * "/linear_bounds_$(mode)_1_$dim"
 
                 specific_extents = numpy.load(dim_region_filename*"_these_indices_$refinement.npy")  # need to add 1 to this
                 x_gp = numpy.load(dim_region_filename*"_x_gp.npy")
