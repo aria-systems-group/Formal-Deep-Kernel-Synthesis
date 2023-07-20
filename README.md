@@ -26,13 +26,7 @@ Several packages must be installed in Julia for this code, these can be installe
 They should be added inside the conda environment.
 
 ```bash
-pkg> add JuMP
-pkg> add Ipopt
-pkg> add PyCall
-pkg> add SpecialFunctions
-pkg> add Plots
-pkg> add IterTools
-pkg> add ProgressBars
+pkg> add JuMP, Ipopt, PyCall, SpecialFunctions, Plots, IterTools, ProgressBars
 pkg> add https://github.com/aria-systems-group/PosteriorBounds.jl
 ```
 
