@@ -1071,8 +1071,8 @@ function run_prism(global_exp_dir, prism_filepath, refinement, pimdp)
 end
 
 
-function run_synthesis(imdp_file, k, refinement; ep=1e-6, mode1="maximize", mode2="pessimistic")
-    exe_path = "/usr/local/bin/synthesis"  # Assumes that this program is on the user's path
+function run_synthesis(imdp_file, k, refinement, EXPERIMENT_DIR; ep=1e-6, mode1="maximize", mode2="pessimistic")
+    exe_path = EXPERIMENT_DIR * "/synthesis"  # Assumes that this program is in the experiement dir
     @assert isfile(imdp_file)
     res = read(`$exe_path $mode1 $mode2 $k $ep $imdp_file`, String)
     dst_dir = dirname(imdp_file)

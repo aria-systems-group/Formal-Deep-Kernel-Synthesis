@@ -159,7 +159,7 @@ for refinement in 0:refinements
                                        label_fn, skip_labels, dfa, imdp, pimdp_filepath, prism_res)
 
         @info "Calculating satisfaction probabilities"
-        res = run_synthesis(pimdp_filepath, k, refinement; ep=1e-6)
+        res = run_synthesis(pimdp_filepath, k, refinement, EXPERIMENT_DIR; ep=1e-6)
     else
         reuse_check = reuse_pimdp && reuse_bounds && ((refinement == 0) || reuse_refinement)
         if reuse_check && isfile(pimdp_filepath)
@@ -189,7 +189,7 @@ for refinement in 0:refinements
                 # it is too slow on higher dims, allow the upper bound some slack
                 accuracy = 1e-3
             end
-            res = run_synthesis(pimdp_filepath, -1, refinement; ep=accuracy)
+            res = run_synthesis(pimdp_filepath, -1, refinement, EXPERIMENT_DIR; ep=accuracy)
             save(res_filepath, "res", res)
         end
 
