@@ -474,9 +474,6 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
         # store the results
         os.chdir(exp_dir)
         for index, lin_trans in enumerate(results):
-            print(lin_trans)
-            print(np.shape(lin_trans[1]))
-            exit()
             saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
             linear_bounds_info[index] = saved_vals
             saved_m = np.array([lin_trans[0], lin_trans[1]])
