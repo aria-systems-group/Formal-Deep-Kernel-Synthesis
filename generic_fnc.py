@@ -216,6 +216,7 @@ def get_grid_info(X, grid_len):
         grid_size = {"x1": 0.125, "x2": 0.125, "x3": 0.05}
     elif len(X) == 5:
         grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.1, "x4": 0.1, "x5": 0.1}
+        grid_size = {"x1": 0.25, "x2": 0.25, "x3": 0.2, "x4": 0.2, "x5": 0.2}
     else:
         print("You need to define a grid size for this dimensionality")
         exit()

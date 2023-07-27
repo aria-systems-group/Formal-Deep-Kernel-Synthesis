@@ -68,7 +68,8 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
         if use_scaling:
             if out_dim == 5:
                 # y_mini = scaling_fnc(x_mini)
-                y_mini = scaling_fnc(y_mini, dx=10., dy=10., dz=4.)
+                # y_mini = scaling_fnc(y_mini, dx=10., dy=10., dz=4.)
+                y_mini = scaling_fnc(y_mini, dx=4., dy=4.)
             if out_dim == 3:
                 y_mini = scaling_fnc(y_mini, dx=10., dy=2.)
             else:
@@ -473,6 +474,9 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
         # store the results
         os.chdir(exp_dir)
         for index, lin_trans in enumerate(results):
+            print(lin_trans)
+            print(np.shape(lin_trans[1]))
+            exit()
             saved_vals = np.array([lin_trans[4].astype(np.float64), lin_trans[5].astype(np.float64)])
             linear_bounds_info[index] = saved_vals
             saved_m = np.array([lin_trans[0], lin_trans[1]])
@@ -481,11 +485,21 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
             linear_transform_b[index] = saved_b
 
     else:
+        transform_ = np.eye(nn_out_dim)
+        transform_ = transform_.reshape(1, nn_out_dim, nn_out_dim)
+
+        bias_ = np.zeros(1, nn_out_dim)
         for index, region in enumerate(extents):
             x_min = [k[0] for k in list(region)]
             x_max = [k[1] for k in list(region)]
             saved_vals = [np.array(x_min).astype(np.float64), np.array(x_max).astype(np.float64)]
             linear_bounds_info[index] = saved_vals
+
+            saved_m = np.array([transform_, transform_])
+            linear_transform_m[index] = saved_m
+
+            saved_b = np.array([bias_, bias_])
+            linear_transform_b[index] = saved_b
 
     return linear_bounds_info, linear_transform_m, linear_transform_b
 

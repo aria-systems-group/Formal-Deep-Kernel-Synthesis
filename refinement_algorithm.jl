@@ -5,13 +5,6 @@ using SpecialFunctions
 using PyCall
 @pyimport numpy
 
-
-function prob_via_erf(lb, la, mean, sigma)
-    # Pr(la <= X <= lb) when X ~ N(mean, sigma)
-    return 0.5 * (erf((lb - mean) / (sqrt(2) * sigma)) - erf((la - mean) / (sqrt(2) * sigma)))
-end
-
-
 function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff; dfa_init_state=1)
     # this returns the n_best regions to refine by assessing the difference between upper and lower probability of
     # satisfying as well as outgoing transition probability
@@ -47,7 +40,7 @@ end
 
 
 function refinement_algorithm(refine_states, extents, modes, num_dims, global_dir_name, nn_bounds_dir, refinement;
-                              threshold=1e-5, use_regular_gp=false)
+                              threshold=1e-5)
 
     # load prior info
     linear_transforms = numpy.load(nn_bounds_dir * "/linear_trans_m_1_$(refinement).npy")
@@ -75,9 +68,10 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     new_bias = []
     new_linear_bounds = []
     num_added = 0
+    dim_list = collect(1:num_dims)
     for idx in refine_states
         # find which dimensions have the largest growth
-        refine_dim = dim_checker(extents[idx, :, :], linear_transforms, modes, idx, use_regular_gp)
+        refine_dim = dim_checker(extents[idx, :, :], linear_transforms, modes, idx, dim_list, threshold)
         # split the extent along that dimensions
         new_regions = extent_splitter(extents[idx, :, :], refine_dim, threshold)
         if isnothing(new_extents)
@@ -105,7 +99,7 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     end
 
     specific_extents = collect((kept):(kept+num_added-1))
-    @info "Added $num_added regions"
+    @info "Added $(num_added - length(refine_states)) regions"
 
     # now re-save files for refinement+1
     new_extents = vcat(extents[keep_states, :, :], new_extents)
@@ -188,20 +182,15 @@ function new_posts_fnc(region, linear_transforms, linear_bias, modes, idx, dims)
 end
 
 
-function dim_checker(region, linear_transforms, modes, idx, use_regular_gp)
+function dim_checker(region, linear_transforms, modes, idx, dim_list, threshold)
     x_ranges = [region[k,:] for k in 1:(size(region)[1])]
     vertices = [[vert...] for vert in Base.product(x_ranges...)]
 
     xi_max = 0
     max_dim = nothing
     for mode in modes
-        if use_regular_gp
-            lA = 1
-            uA = 1
-        else
-            lA = linear_transforms[idx,1,1,:,:,mode]
-            uA = linear_transforms[idx,2,1,:,:,mode]
-        end
+        lA = linear_transforms[idx,1,1,:,:,mode]
+        uA = linear_transforms[idx,2,1,:,:,mode]
 
         v_low = []
         v_up = []
@@ -237,8 +226,23 @@ function dim_checker(region, linear_transforms, modes, idx, use_regular_gp)
 
                 xi_a = max(upper_norm / vertex_norm, lower_norm / vertex_norm)
                 if xi_a > xi_max
-                    xi_max = xi_a
-                    max_dim = matching_dims
+                    used_dims = copy(dim_list)
+                    for i in reverse(sort(matching_dims))
+                        splice!(used_dims, i)
+                    end
+                    # ensure this dimension can be refined first
+                    actually_valid = copy(used_dims)
+                    for split_dim in used_dims
+                        dx = region[split_dim,2] - region[split_dim,1]
+                        if dx/2.0 < threshold
+                            filter!(x -> x != split_dim, actually_valid)
+                        end
+                    end
+
+                    if length(actually_valid) > 0
+                        xi_max = xi_a
+                        max_dim = copy(actually_valid)
+                    end
                 end
             end
         end
@@ -256,13 +260,12 @@ function extent_splitter(extent, refine_dims, threshold)
     for dim in 1:num_dims
         dx = extent[dim, 2] - extent[dim, 1]
         if dim in refine_dims
-            dx /= 2.0
-            num_new *= 2
+            if (dx/2.0 >= threshold)
+                dx /= 2.0
+                num_new *= 2
+            end
         end
-        if dx < threshold
-            dx *= 2.0  # can't split this dimension
-            num_new /= 2
-        end
+
         push!(grid_size, dx)
     end
 

@@ -24,7 +24,7 @@ refine_threshold = 1e-5
 use_regular_gp = false  # don't change this here
 
 reuse_bounds = true  # feel free to edit any of these
-reuse_pimdp = false
+reuse_pimdp = true
 reuse_policy = true
 reuse_refinement = false
 prob_plot = true
@@ -109,7 +109,7 @@ global_exp_dir = exp_dir * "/" * global_dir_name
 general_data = numpy.load(global_exp_dir * "/general_info.npy")
 nn_bounds_dir = global_exp_dir * "/nn_bounds"
 
-n_best = 3000  # refine 3000 states?
+n_best = 10000  # refine 3000 states?
 satisfaction_threshold = .95
 
 num_dfa_states = length(dfa["states"])
@@ -219,7 +219,8 @@ for refinement in 0:refinements
 
     if refinement < refinements
         if reuse_refinement && isfile(nn_bounds_dir * "/linear_trans_m_$(num_modes)_$(refinement+1).npy")
-
+            @info "Reusing refined regions"
+            print("\n")
         else
             @info "Beginning refinement algorithm"
             refine_states = refine_check(res, q_refine, n_best, num_dfa_states, p_action_diff; dfa_init_state=1)
