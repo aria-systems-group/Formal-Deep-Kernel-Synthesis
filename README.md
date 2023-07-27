@@ -33,7 +33,7 @@ pkg> add https://github.com/aria-systems-group/PosteriorBounds.jl
 ### BMDP Tool
 This package depends on the `bmdp-tool` here: https://github.com/aria-systems-group/bmdp-tool
 
-The tool should be compiled using Make and the `synthesis` executable moved to a location on the user executable path e.g. `/usr/local/bin`.
+The tool has been pre-compiled using Make and the `synthesis` executable is in this directory.
 
 
 
