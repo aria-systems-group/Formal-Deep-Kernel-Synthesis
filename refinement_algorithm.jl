@@ -5,7 +5,7 @@ using SpecialFunctions
 using PyCall
 @pyimport numpy
 
-function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff; dfa_init_state=1)
+function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff, p_in_diff; dfa_init_state=1)
     # this returns the n_best regions to refine by assessing the difference between upper and lower probability of
     # satisfying as well as outgoing transition probability
 
@@ -22,7 +22,7 @@ function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff; df
         sat_prob = (maxPrs[s] - minPrs[s])
 
         i_pimdp = (s-1)*num_dfa_states + dfa_init_state
-        p_actions = p_action_diff[i_pimdp]
+        p_actions = p_action_diff[i_pimdp]  # + p_in_diff[s]  # care about outgoing and incoming transitions
 
         theta[idx] = p_actions * sat_prob
     end
@@ -114,19 +114,20 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     new_linear_bounds = vcat(linear_bounds[keep_states, :, :, :], new_linear_bounds)
 
     additional_array = zeros(num_added, num_dims, 2)
+    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
 
     for mode in modes
         numpy.save(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement+1)", new_transforms[:,:,:,:,:,mode])
         numpy.save(nn_bounds_dir * "/linear_trans_b_$(mode)_$(refinement+1)", new_bias[:,:,:,:,mode])
         numpy.save(nn_bounds_dir * "/linear_bounds_$(mode)_$(refinement+1)", new_linear_bounds[:,:,:,mode])
 
-        mean_bound = numpy.load(global_exp_dir*"/mean_data_$(mode)_$refinement.npy")
+        mean_bound = numpy.load(gp_bounds_dir*"/mean_data_$(mode)_$refinement.npy")
         mean_bound = vcat(mean_bound[keep_states, :, :], additional_array)
-        numpy.save(global_exp_dir*"/mean_data_$(mode)_$(refinement+1)", mean_bound)
+        numpy.save(gp_bounds_dir*"/mean_data_$(mode)_$(refinement+1)", mean_bound)
 
-        sig_bound = numpy.load(global_exp_dir*"/sig_data_$(mode)_$refinement.npy")
+        sig_bound = numpy.load(gp_bounds_dir*"/sig_data_$(mode)_$refinement.npy")
         sig_bound = vcat(sig_bound[keep_states, :, :], additional_array)
-        numpy.save(global_exp_dir*"/sig_data_$(mode)_$(refinement+1)", sig_bound)
+        numpy.save(gp_bounds_dir*"/sig_data_$(mode)_$(refinement+1)", sig_bound)
 
         for dim in 1:num_dims
             dim_region_filename = nn_bounds_dir * "/linear_bounds_$(mode)_1_$dim"

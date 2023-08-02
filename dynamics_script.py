@@ -60,21 +60,30 @@ def g_5d_mode3(xs):
 
 
 def g_sin(x):
-    return np.sin(x)
+    return 5. * np.sin(x)
+
+
+def g_cos(x):
+    return 5. * np.cos(x)
 
 
 def crazy_1d(x):
     x_scale = [x_/5. for x_ in x]
     part_1 = x * np.sin(x_scale)
     x_scale = [x_/15. for x_ in x]
-    part_2 = 3.* np.cos(x_scale)
+    part_2 = 3. * np.cos(x_scale)
     x_scale = [-x_ for x_ in x]
     part_3 = 2. * np.exp(x_scale)
     return part_1 + part_2 + part_3
 
 
-def g_x_sin(x):
-    return x*np.sin(x)
+def g_right(x):
+    return x + (0.5 * np.cos(x)) + 0.25
+
+
+def g_left(x):
+    return x - (0.5 * np.sin(x)) - 0.25
+
 
 # ==================================================================================================================== #
 # 2D linear

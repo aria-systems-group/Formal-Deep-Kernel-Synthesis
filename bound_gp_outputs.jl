@@ -27,10 +27,16 @@ using SharedArrays
 end
 
 
-function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_regions, label_fn, skip_labels)
+function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_regions, label_fn, skip_labels,
+                  use_personal)
     nn_bounds_dir = global_exp_dir * "/nn_bounds"
+    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
+
+    if !isdir(gp_bounds_dir)
+        mkdir(gp_bounds_dir)
+    end
     for mode in 1:num_modes
-        if isfile(global_exp_dir*"/complete_$mode" * "_$refinement.npy") && reuse_regions
+        if isfile(gp_bounds_dir*"/complete_$mode" * "_$refinement.npy") && reuse_regions
             @info "Reusing prior bounds for mode $mode"
             continue
         end
@@ -80,10 +86,15 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                 PosteriorBounds.compute_factors!(gp)
 
                 # parallelize getting mean bounds and variance bounds
-                 @sync @distributed for idx in specific_extents
+                @sync @distributed for idx in specific_extents
                     # need distributed here because it is significant computation, threading is inefficient
-                    x_L = linear_bounds[idx+1, 1, :]
-                    x_U = linear_bounds[idx+1, 2, :]
+                    if use_personal == 1
+                        x_L = linear_bounds[idx+1, 1, dim]
+                        x_U = linear_bounds[idx+1, 2, dim]
+                    else
+                        x_L = linear_bounds[idx+1, 1, :]
+                        x_U = linear_bounds[idx+1, 2, :]
+                    end
 
                     if any([matching_label(label_fn[idx+1], skip_) for skip_ in skip_labels])
                         # don't actually care about the bounds on this region, just put 1s and 0s
@@ -105,6 +116,10 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                                                                            bound_epsilon=1e-3, max_flag=false,
                                                                            prealloc=nothing)
 
+                        if mean_info_l[2] == mean_info_u[2]
+                            @info "something is wrong with $idx, $mode, $dim. Mean is identical"
+                        end
+
                         mean_bound[idx+1, dim, 1] = mean_info_l[2]
                         mean_bound[idx+1, dim, 2] = -mean_info_u[2]
 
@@ -120,8 +135,8 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                                                                         bound_epsilon=1e-3, min_flag=false,
                                                                         prealloc=nothing)
 
-                            sig_upper = sqrt(sig_info[3])  # this is a std deviation
-                            sig_low = sqrt(sig_info[2])
+                            sig_upper = sqrt(sig_info[2])  # this is a std deviation
+                            sig_low = sqrt(sig_info[3])
                             if abs(sig_upper-sig_low) > sqrt(1e-3)
                                 # this means it didn't converge properly, use expensive quadratic program to find solution
                                 outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;
@@ -130,10 +145,10 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                                 sig_upper = outputs[3]  # this is a std deviation
                             end
                             # TODO, figure out why this takes forever
-    #                         sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
-    #                                                                     cK_inv_scaled; max_iterations=10,
-    #                                                                     bound_epsilon=1e-2, min_flag=true,
-    #                                                                     prealloc=nothing)
+                            # sig_info = PosteriorBounds.compute_σ_bounds(gp, x_L, x_U, theta_vec_2, theta_vec,
+                            #                                             cK_inv_scaled; max_iterations=10,
+                            #                                             bound_epsilon=1e-2, min_flag=true,
+                            #                                             prealloc=nothing)
                             sig_lower = min(sig_low, sig_upper)
                         end
 
@@ -145,9 +160,9 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
         end
         @info "Calculated bounds for mode $mode in $mode_runtime seconds"
         # save data
-        numpy.save(global_exp_dir*"/mean_data_$mode" * "_$refinement", mean_bound)
-        numpy.save(global_exp_dir*"/sig_data_$mode" * "_$refinement", sig_bound)
-        numpy.save(global_exp_dir*"/complete_$mode" * "_$refinement", 1)
+        numpy.save(gp_bounds_dir*"/mean_data_$mode" * "_$refinement", mean_bound)
+        numpy.save(gp_bounds_dir*"/sig_data_$mode" * "_$refinement", sig_bound)
+        numpy.save(gp_bounds_dir*"/complete_$mode" * "_$refinement", 1)
     end
 
 end

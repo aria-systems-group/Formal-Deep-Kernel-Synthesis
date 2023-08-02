@@ -29,12 +29,14 @@ width_2 = 64
 num_layers = 2
 random_Seed = 11
 use_reLU = True
+single_dim_nn = False
 known_fnc = None
 use_scaling = False
 nn_epochs = 1000
 nn_lr = 1e-4
 merge_extents = False
 merge_bounds = None
+kernel_data_points = None
 grid_len = 1
 
 refinement = 0  # don't change this
@@ -112,18 +114,41 @@ elif experiment_number == 5:
     process_dist = {"mu": [0., 0., 0., 0., 0.], "sig": [0.01, 0.01, 0.0001, 0.0001, 0.0001], "dist": "multi_norm",
                     "theta_dim": [2, 3, 4]}
     X = {"x1": [-2., 2.], "x2": [-2., 2.], "x3": [-0.3, 0.3], "x4": [-0.3, 0.3], "x5": [-0.3, 0.3]}
-    GP_data_points = 250
-    width_1 = 128
-    width_2 = 128
-    num_layers = 2
+    GP_data_points = 50000
+    kernel_data_points = 250
+    width_1 = 64
+    width_2 = 64
+    num_layers = 3
     use_scaling = True
-    nn_epochs = 4000
+    nn_epochs = 10000
     merge_extents = True
     merge_bounds = {"unsafe": [[[-0.75, 0.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]],
                                [[0.5, 2.0], [-0.75, 0.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]]],
                     "goal": [[[1.0, 2.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]]]}
+    single_dim_nn = True
+elif experiment_number == 6:
+    # 3D experiment, 7 modes, 400 data points per mode
+    global_dir_name = "dubins_sys_da"
+    process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
+    unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]
+    X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
+    GP_data_points = 10000
+    kernel_data_points = 400
+    nn_epochs = 5000
+    width_1 = 128
+    width_2 = 128
+    num_layers = 2
+    epochs = 600
+    use_scaling = True
+    learning_rate = 1e-4
+    merge_extents = True
+    merge_bounds = {"unsafe": [[[4., 6], [0., 1.], [-0.5, 0.5]]], "goal": [[[8., 10.], [0., 1.], [-0.5, 0.5]]]}
+    single_dim_nn = True
 else:
     exit()
+
+if kernel_data_points is None:
+    kernel_data_points = GP_data_points
 
 modes = [i for i in range(len(unknown_modes_list))]
 
@@ -186,7 +211,6 @@ else:
     del x_train, y_train
     dict_save(file_name, all_data)
 
-keys = list(X)
 
 gp_file_dir = global_exp_dir + "/gp_parameters"
 if not os.path.isdir(gp_file_dir):
@@ -199,6 +223,7 @@ if False and reuse_regions and os.path.exists(file_name + '_0_0.pth'):
     unknown_dyn_gp = dkl_load(file_name, unknown_dyn_gp, all_data, use_reLU, num_layers, network_dims)
 
 tic = time.perf_counter()
+keys = list(X)
 for mode in modes:
     if unknown_dyn_gp[mode] is None:
         unknown_dyn_gp[mode], region_info[mode] = deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU,
@@ -210,7 +235,9 @@ for mode in modes:
                                                                              random_seed=(mode + 2) * random_Seed,
                                                                              epochs=nn_epochs, nn_lr=nn_lr,
                                                                              use_regular_gp=use_regular_gp,
-                                                                             use_scaling=use_scaling)
+                                                                             use_scaling=use_scaling,
+                                                                             kernel_data_points=kernel_data_points,
+                                                                             single_dim_nn=single_dim_nn)
 
         print(f'Finished deep kernel regression for mode {mode+1}\n')
         dkl_save(file_name, unknown_dyn_gp, mode, True)
@@ -233,7 +260,10 @@ if not os.path.isdir(nn_bounds_dir):
     os.mkdir(nn_bounds_dir)
 
 filename = global_exp_dir + f"/general_info"
-np.save(filename, np.array([num_modes, num_dims, num_sub_regions, num_regions]))
+use_personal = 0
+if single_dim_nn:
+    use_personal = 1
+np.save(filename, np.array([num_modes, num_dims, num_sub_regions, num_regions, use_personal]))
 
 tic = time.perf_counter()
 lin_bounds = [[] for idx in range(num_regions)]  # using the same NN across all dimensions for one mode
@@ -274,7 +304,7 @@ for mode in modes:
         n_obs = max(np.shape(y_data))
 
         # identify which extents are in this region and their indices
-        specific_extents = extents_in_region(extents, region)
+        specific_extents = [j for j in range(0, num_regions)]  # extents_in_region(extents, region)
 
         for dim in range(num_dims):
             dim_region_filename = nn_bounds_dir + f"/linear_bounds_{mode + 1}_{sub_idx + 1}_{dim + 1}"
@@ -285,6 +315,8 @@ for mode in modes:
                 nn_portion = model.feature_extractor
                 with torch.no_grad():
                     kernel_inputs = nn_portion.forward(x_data)
+                if single_dim_nn:
+                    kernel_inputs = torch.index_select(kernel_inputs, 1, torch.tensor(dim))
             else:
                 kernel_inputs = x_data
             noise = model.likelihood.noise.item()

@@ -27,22 +27,19 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
     global maybe_volume = 0
     maybe_regions = []
     q_refine = []
-#     maxPrs = []
-#     minPrs = []
     for i in 1:size(extents)[1]-1
         max_prob = maxPrs[i]
         min_prob = minPrs[i]
-
-#         i_pimdp = (i-1)*num_dfa_states + 1
-#         max_prob = indVmax[i_pimdp]
-#         min_prob = indVmin[i_pimdp]
-#         push!(maxPrs, max_prob)
-#         push!(minPrs, min_prob)
 
         if max_prob < min_prob
             # this may happen if synthesis is run with a convergence value > 1e-6
             max_prob = min_prob
         end
+
+#         if (max_prob - min_prob) > 0.02
+#             # refine any state where the probabilities haven't converged?
+#             append!(q_refine, [i])
+#         end
 
         if min_prob >= min_threshold
             # yay this region satisfied

@@ -129,15 +129,16 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
     # pre-load all bounds and store in new array?
     all_means = Dict()
     all_sigs = Dict()
+    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
     for mode in 1:(num_modes::Int)
-        mean_bounds = numpy.load(global_exp_dir*"/mean_data_$mode" * "_$refinement.npy")
-        sig_bounds = numpy.load(global_exp_dir*"/sig_data_$mode" * "_$refinement.npy")
+        mean_bounds = numpy.load(gp_bounds_dir*"/mean_data_$mode" * "_$refinement.npy")
+        sig_bounds = numpy.load(gp_bounds_dir*"/sig_data_$mode" * "_$refinement.npy")
         all_means[mode] = mean_bounds
         all_sigs[mode] = sig_bounds
     end
 
     p_action_diff = []
-    p_in_dif = zeros(num_regions+1)
+    p_in_diff = zeros(num_regions+1)
 
     # this is actually super wasteful since it calculates the transitions for each dfa state ...
     open(filename, "w") do f
@@ -243,7 +244,7 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
                     end
                     p_action += sum(p_max_vec[mode, :]) - sum(p_min_vec[mode, :])
 
-                    p_in_dif += (p_max_vec[mode, :] - p_min_vec[mode, :])
+                    p_in_diff += (p_max_vec[mode, :] - p_min_vec[mode, :])
 
                     # here I have the transition probabilities from state "i" under action "mode" and dfa state "q"
                     if qp_test == dfa_acc_state
@@ -303,8 +304,8 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
 
     end
 
-    # which one? p_action_diff or p_in_dif
-    return pimdp, p_action_diff
+    # which one? p_action_diff or p_in_diff
+    return pimdp, p_action_diff, p_in_diff
 end
 
 

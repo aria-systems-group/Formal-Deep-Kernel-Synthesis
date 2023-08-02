@@ -23,7 +23,7 @@ def loss_function_smooth(unknown_dyn_model, y_data, x_data):
 
 
 def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, random_seed=20,
-                            epochs=10000, lr=1e-3, use_scaling=False):
+                            epochs=10000, lr=1e-3, use_scaling=False, dim=None):
 
     if use_relu:
         if num_layers == 3:
@@ -49,12 +49,28 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
 
     scale_to_bounds = gpytorch.utils.grid.ScaleToBounds(-1., 1.)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
+    y_data = torch.tensor(np.transpose(y_train), dtype=torch.float32).to(device)
+
+    if use_scaling:
+        if out_dim == 5:
+            y_data = scaling_fnc(y_data, dx=10., dy=10., dz=4.)
+        if out_dim == 3:
+            y_data = scaling_fnc(y_data, dx=10., dy=2.)
+        else:
+            y_data = scale_to_bounds(y_data)
+
+    if dim is not None:
+        y_data = y_data[:, dim]
+        y_data = torch.reshape(y_data, (np.shape(x_train)[1], 1))
+        out_dim = 1
+
     torch.manual_seed(random_seed)
     global feature_extractor
     feature_extractor = net_model_to_use(d=d, width_1=width_1, width_2=width_2, out_dim=out_dim)
     feature_extractor.to(device)
-    x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
-    y_data = torch.tensor(np.transpose(y_train), dtype=torch.float32).to(device)
+
     optimizer = torch.optim.Adam(feature_extractor.parameters(), lr=lr)
     print("Training Neural Network on generated data for mode {}...".format(mode+1))
     for t in range(epochs):
@@ -64,16 +80,6 @@ def train_feature_extractor(all_data, mode, use_relu, num_layers, network_dims, 
         idx = perm[:n_samples]
         y_mini = y_data[idx]
         x_mini = x_data[idx]
-
-        if use_scaling:
-            if out_dim == 5:
-                # y_mini = scaling_fnc(x_mini)
-                # y_mini = scaling_fnc(y_mini, dx=10., dy=10., dz=4.)
-                y_mini = scaling_fnc(y_mini, dx=4., dy=4.)
-            if out_dim == 3:
-                y_mini = scaling_fnc(y_mini, dx=10., dy=2.)
-            else:
-                y_mini = scale_to_bounds(y_mini)
 
         # Compute and print loss.
         loss = loss_function_smooth(feature_extractor, y_mini, x_mini)
@@ -166,117 +172,34 @@ class DeepKernelGP(gpytorch.models.ExactGP):
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
+class DeepKernelGPPNN(gpytorch.models.ExactGP):
+    def __init__(self, train_x, train_y, likelihood):
+        super(DeepKernelGPPNN, self).__init__(train_x, train_y, likelihood)
+        self.mean_module = gpytorch.means.ZeroMean()
+        lengthscale_prior = gpytorch.priors.GammaPrior(1.0, 2.0)
+        self.covar_module = gpytorch.kernels.ScaleKernel(
+            gpytorch.kernels.RBFKernel(lengthscale_prior=lengthscale_prior))
+        self.feature_extractor = feature_extractor
+        self.dim = torch.tensor(dimension_used).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+
+    def forward(self, x):
+        # We're first putting our data through a deep net (feature extractor)
+        projected_x = self.feature_extractor(x)
+        projected_x = torch.index_select(projected_x, 1, self.dim)
+        mean_x = self.mean_module(projected_x)
+        covar_x = self.covar_module(projected_x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
 # =============================================================================================================
 # Learning functions
 # =============================================================================================================
 
 
-# def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
-#                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
-#                                epochs=10000, nn_lr=1e-3, use_regular_gp=False, use_scaling=False):
-#     # this function trains either a standard se_kernel GP (if use_regular_gp=True) or a deep kernel model
-#     # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
-#     # The models are trained on local data sets to reduce computational load in the future
-#
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#     alpha = 1e-2
-#     if process_noise is not None:
-#         alpha = process_noise["sig"]
-#
-#     if not use_regular_gp:
-#         # train the NN with all the data
-#         train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed,
-#                                 epochs=epochs, lr=nn_lr, use_scaling=use_scaling)
-#
-#     print('Optimizing GP parameters\n')
-#
-#     domain_list = discretize_space_list(domain, grid_size, include_space=False)
-#     region_data = [None, None, domain_list]
-#     x_train = all_data[mode][0]
-#     y_train = all_data[mode][1]
-#     region_data[0] = x_train
-#     region_data[1] = y_train
-#
-#     y_train = np.transpose(y_train)
-#     x_data = torch.tensor(np.transpose(x_train), dtype=torch.float32, requires_grad=True).to(device)
-#     n_obs = np.shape(y_train)[0]
-#
-#     gp_by_dim = []
-#     for dim, key in enumerate(keys):
-#
-#         y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
-#
-#         likelihood = gpytorch.likelihoods.GaussianLikelihood()
-#
-#         if use_regular_gp:
-#             model = ExactGPModel(x_data, y_data, likelihood)
-#         else:
-#             model = DeepKernelGP(x_data, y_data, likelihood)
-#
-#         if torch.cuda.is_available():
-#             model = model.cuda()
-#             likelihood = likelihood.cuda()
-#
-#         if process_noise["dist"] == "multi_norm":
-#             alpha_ = alpha[dim]
-#             if "theta_dim" in list(process_noise):
-#                 if dim in process_noise["theta_dim"]:
-#                     # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
-#                     if len(domain) == 3:
-#                         alpha_ = max(alpha[dim], 0.0075)
-#                         alpha_ = max(alpha[dim], 0.01)
-#                     else:
-#                         alpha_ = max(alpha[dim], 0.005)
-#                         alpha_ = max(alpha[dim], 0.01)
-#         else:
-#             alpha_ = alpha
-#         hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
-#
-#         model.initialize(**hypers)
-#         model.train()
-#         likelihood.train()
-#
-#         # NOTE, this does not optimize the NN feature extractor, uses the pre-trained version
-#         optimizer = torch.optim.Adam([{'params': model.covar_module.parameters()},
-#                                       {'params': model.mean_module.parameters()},
-#                                       {'params': model.likelihood.parameters()},
-#                                       ], lr=lr)
-#
-#         mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
-#         for i in range(training_iter):
-#             # Zero gradients from previous iteration
-#             optimizer.zero_grad()
-#             # Output from model
-#             output = model(x_data)
-#
-#             # Calc loss and backprop gradients
-#             loss = -mll(output, y_data)
-#
-#             loss.backward()
-#             if i % training_iter == training_iter-1:
-#                 print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f' %
-#                       (i + 1, training_iter, loss.item(),
-#                        model.covar_module.base_kernel.lengthscale.item()))
-#
-#             optimizer.step()
-#
-#         if not use_regular_gp and global_dir_name is not None:
-#             setup_crown_yaml_dkl(network_dims, mode, dim, crown_dir, global_dir_name, use_reLU, num_layers)
-#             torch_file_name = "/unknown_dyn_model_mode_{}_dim_{}_experiment_{}.pt".format(mode, dim, global_dir_name)
-#             nn_to_save = model.feature_extractor
-#             torch.save(nn_to_save.state_dict(), crown_dir + "/models" + torch_file_name)
-#
-#         model.eval()
-#         likelihood.eval()
-#         print("")
-#         gp_by_dim.append([model, likelihood])
-#
-#     return gp_by_dim, region_data
-
-
 def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, network_dims, crown_dir, global_dir_name,
                                grid_size, domain, training_iter=40, lr=0.01, process_noise=None, random_seed=11,
-                               epochs=10000, nn_lr=1e-3, use_regular_gp=False, use_scaling=False):
+                               epochs=10000, nn_lr=1e-3, use_regular_gp=False, use_scaling=False,
+                               kernel_data_points=None, single_dim_nn=False):
     # this function trains either a standard se_kernel GP (if use_regular_gp=True) or a deep kernel model
     # The deep kernel model will use a pre-trained fixed NN while optimizing the kernel parameters
     # The models are trained on local data sets to reduce computational load in the future
@@ -286,7 +209,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
     if process_noise is not None:
         alpha = process_noise["sig"]
 
-    if not use_regular_gp:
+    if not use_regular_gp: # and not personal_nn:
         # train the NN with all the data
         train_feature_extractor(all_data, mode, use_reLU, num_layers, network_dims, random_seed=random_seed,
                                 epochs=epochs, lr=nn_lr, use_scaling=use_scaling)
@@ -302,6 +225,15 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
         region_data = [None, None, region]
         x_train = data_by_region[idx][0]
         y_train = data_by_region[idx][1]
+
+        perm = torch.randperm(np.shape(y_train)[1])
+        used_data_idx = perm[:kernel_data_points]
+
+        x_train = x_train[:, used_data_idx]
+        y_train = y_train[:, used_data_idx]
+
+        # get a random set from the data up to kernel_data_points
+
         region_data[0] = x_train
         region_data[1] = y_train
 
@@ -311,13 +243,16 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
 
         gp_by_dim = []
         for dim, key in enumerate(keys):
-
             y_data = torch.tensor(np.reshape(y_train[:, dim], (n_obs,)), dtype=torch.float32).to(device)
 
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
 
             if use_regular_gp:
                 model = ExactGPModel(x_data, y_data, likelihood)
+            elif single_dim_nn:
+                global dimension_used
+                dimension_used = dim
+                model = DeepKernelGPPNN(x_data, y_data, likelihood)
             else:
                 model = DeepKernelGP(x_data, y_data, likelihood)
 
