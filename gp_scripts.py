@@ -420,7 +420,7 @@ def run_dkl_in_parallel_just_bounds(extents, mode, nn_out_dim, crown_dir, global
         transform_ = np.eye(nn_out_dim)
         transform_ = transform_.reshape(1, nn_out_dim, nn_out_dim)
 
-        bias_ = np.zeros(1, nn_out_dim)
+        bias_ = np.zeros([1, nn_out_dim])
         for index, region in enumerate(extents):
             x_min = [k[0] for k in list(region)]
             x_max = [k[1] for k in list(region)]
