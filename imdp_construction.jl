@@ -129,7 +129,7 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
     # pre-load all bounds and store in new array?
     all_means = Dict()
     all_sigs = Dict()
-    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
+    gp_bounds_dir = global_exp_dir  * "/gp_bounds"
     for mode in 1:(num_modes::Int)
         mean_bounds = numpy.load(gp_bounds_dir*"/mean_data_$mode" * "_$refinement.npy")
         sig_bounds = numpy.load(gp_bounds_dir*"/sig_data_$mode" * "_$refinement.npy")
@@ -156,6 +156,8 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
         [@printf(f, "%d ", acc_state-1) for acc_state in acc_states]
         @printf(f, "\n")
 
+        avg_transitions = 0
+
         for i in 1:(num_regions::Int)
             p_min_vec .= 0.0
             p_max_vec .= 0.0
@@ -163,6 +165,7 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
                 qp_test = delta_(q, dfa, imdp.labels[i])  # which dfa state it transitions to
                 i_pimdp = (i-1)*sizeQ + dfa_num_map[q]   # this is the pimdp state number
                 p_action = 0
+                num_trans = Atomic{Float64}(0)
                 for mode in 1:(num_modes::Int)
 
                     mean_bounds = all_means[mode]
@@ -230,6 +233,9 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
 
                                 p_min_vec[mode, j] = p_min
                                 p_max_vec[mode, j] = p_max
+                                if p_max > 0
+                                    atomic_add!(num_trans, 1.0)
+                                end
                             end
                             if sum_up[] < 1
                                 if sum_up[] > .999
@@ -261,6 +267,7 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
                     end
                     update(pbar)
                 end
+                avg_transitions += num_trans[]
                 push!(p_action_diff, p_action)
             end
         end
@@ -302,6 +309,7 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
             end
         end
 
+        @info "This model has an average of $(avg_transitions/num_regions) transitions from each state"
     end
 
     # which one? p_action_diff or p_in_diff

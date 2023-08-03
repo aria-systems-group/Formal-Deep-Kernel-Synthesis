@@ -30,7 +30,7 @@ end
 function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_regions, label_fn, skip_labels,
                   use_personal)
     nn_bounds_dir = global_exp_dir * "/nn_bounds"
-    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
+    gp_bounds_dir = global_exp_dir * "/gp_bounds"
 
     if !isdir(gp_bounds_dir)
         mkdir(gp_bounds_dir)
@@ -42,9 +42,9 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
         end
 
         if refinement > 0
-            mean_bound = numpy.load(global_exp_dir*"/mean_data_$mode" * "_$refinement.npy")
+            mean_bound = numpy.load(gp_bounds_dir*"/mean_data_$mode" * "_$refinement.npy")
             mean_bound = convert(SharedArray, mean_bound)
-            sig_bound = numpy.load(global_exp_dir*"/sig_data_$mode" * "_$refinement.npy")
+            sig_bound = numpy.load(gp_bounds_dir*"/sig_data_$mode" * "_$refinement.npy")
             sig_bound = convert(SharedArray, sig_bound)
         else
             mean_bound = SharedArray(zeros(num_regions, num_dims, 2))

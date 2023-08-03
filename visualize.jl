@@ -231,7 +231,7 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
 
                 s = which_extent(extents, x, num_regions, num_dims)
                 if s == num_regions+1
-                    @info "not safe"
+                    @info "Trajectory left the domain: $x"
                     break
                 end
                 q = delta_(q, dfa, pimdp.labels[s])
@@ -340,3 +340,5 @@ function which_extent(extents, x, num_regions, num_dims)
     end
     return num_regions+1
 end
+
+

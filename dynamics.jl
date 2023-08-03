@@ -153,11 +153,11 @@ function sys_5d(std_dev)
 #                     (0.5 * x[5])]
 
     noise_x = Normal(0., std_dev[1])
-    noise_theta = Normal(0., std_dev[3])
-    f1 = (x) -> mode1(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
-    f2 = (x) -> mode2(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
-    f3 = (x) -> mode3(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
-#     f4 = (x) -> mode4(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1], rand(noise_theta, 1)[1]]
+    noise_z = Normal(0., std_dev[3])
+    f1 = (x) -> mode1(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1]]
+    f2 = (x) -> mode2(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1]]
+    f3 = (x) -> mode3(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1]]
+#     f4 = (x) -> mode4(x) + [rand(noise_x, 1)[1], rand(noise_x, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1], rand(noise_z, 1)[1]]
 
     return [f1, f2, f3]  # , f4]
 end

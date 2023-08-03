@@ -108,7 +108,7 @@ elif experiment_number == 4:
     merge_extents = True
     merge_bounds = {"unsafe": [[[4., 6], [0., 1.], [-0.5, 0.5]]], "goal": [[[8., 10.], [0., 1.], [-0.5, 0.5]]]}
 elif experiment_number == 5:
-    # 5D experiment, 3 modes, 1000 data points per mode
+    # 5D experiment, 3 modes, 50000 data points per mode but only 250 used in the kernel
     global_dir_name = "sys_5d"
     unknown_modes_list = [g_5d_mode0, g_5d_mode1, g_5d_mode2]
     process_dist = {"mu": [0., 0., 0., 0., 0.], "sig": [0.01, 0.01, 0.0001, 0.0001, 0.0001], "dist": "multi_norm",
@@ -127,7 +127,7 @@ elif experiment_number == 5:
                     "goal": [[[1.0, 2.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]]]}
     single_dim_nn = True
 elif experiment_number == 6:
-    # 3D experiment, 7 modes, 400 data points per mode
+    # 3D experiment, 7 modes, 10000 data points per mode but only 400 used in the kernel
     global_dir_name = "dubins_sys_da"
     process_dist = {"mu": [0., 0., 0.], "sig": [0.0001, 0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1, 2]}
     unknown_modes_list = [g_3d_mode1, g_3d_mode2, g_3d_mode3, g_3d_mode4, g_3d_mode5, g_3d_mode6, g_3d_mode7]

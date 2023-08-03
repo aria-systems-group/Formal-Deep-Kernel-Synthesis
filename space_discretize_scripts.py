@@ -94,12 +94,12 @@ def discretize_space_list(space, grid_size, include_space=True):
 
 
 def extent_in_bounds(extent, bounds, dims):
+    eps = 1e-6  # to account for numerical errors when discretizing
     for dim in range(dims):
-        if extent[dim][0] >= bounds[dim][0] and extent[dim][1] <= bounds[dim][1]:
+        if extent[dim][0] >= bounds[dim][0] - eps and extent[dim][1] <= bounds[dim][1] + eps:
             continue
         else:
             return False
-
     return True
 
 

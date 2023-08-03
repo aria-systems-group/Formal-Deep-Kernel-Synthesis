@@ -114,7 +114,7 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     new_linear_bounds = vcat(linear_bounds[keep_states, :, :, :], new_linear_bounds)
 
     additional_array = zeros(num_added, num_dims, 2)
-    gp_bounds_dir = global_exp_dir  # * "/gp_bounds"
+    gp_bounds_dir = global_exp_dir  * "/gp_bounds"
 
     for mode in modes
         numpy.save(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement+1)", new_transforms[:,:,:,:,:,mode])

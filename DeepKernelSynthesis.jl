@@ -21,10 +21,10 @@ refinements = parse(Int, args[3])
 skip_labels = [nothing]
 refine_threshold = 1e-5
 
-reuse_bounds = true  # feel free to edit any of these
+reuse_bounds = false  # feel free to edit any of these
 reuse_pimdp = true
 reuse_policy = true
-reuse_refinement = false
+reuse_refinement = true
 prob_plot = true
 
 if experiment_number == 0
@@ -147,7 +147,7 @@ for refinement in 0:refinements
     num_regions = size(extents)[1] - 1
 
 #     n_best = floor(Int, num_regions/2)  # refine at most half of the states
-    @info "This abstraction has $num_regions states"
+    @info "The abstraction for refinement $refinement has $num_regions states"
 
     # define labels for every extent, this can be used to skip bounding obstacle posteriors
     label_fn = label_states(labels, extents, unsafe_label, num_dims, num_regions)
@@ -206,7 +206,10 @@ for refinement in 0:refinements
                 # it is too slow on higher dims, allow the upper bound some slack
                 accuracy = 1e-3
             end
-            res = run_synthesis(pimdp_filepath, -1, refinement, EXPERIMENT_DIR; ep=accuracy)
+            syn_runtime = @elapsed begin
+                res = run_synthesis(pimdp_filepath, -1, refinement, EXPERIMENT_DIR; ep=accuracy)
+            end
+            @info "Synthesis took $syn_runtime seconds"
             numpy.save(res_filepath, res)
         end
 
