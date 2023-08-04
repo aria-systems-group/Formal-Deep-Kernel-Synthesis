@@ -135,8 +135,8 @@ function bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, 
                                                                         bound_epsilon=1e-3, min_flag=false,
                                                                         prealloc=nothing)
 
-                            sig_upper = sqrt(sig_info[2])  # this is a std deviation
-                            sig_low = sqrt(sig_info[3])
+                            sig_upper = sqrt(sig_info[3])  # this is a std deviation
+                            sig_low = sqrt(sig_info[2])
                             if abs(sig_upper-sig_low) > sqrt(1e-3)
                                 # this means it didn't converge properly, use expensive quadratic program to find solution
                                 outputs = sigma_bnb(gp, x_gp, m, n, out2, x_L, x_U, theta_vec, K_inv_scaled;

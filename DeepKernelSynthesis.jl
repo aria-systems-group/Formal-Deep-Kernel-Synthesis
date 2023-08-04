@@ -21,10 +21,10 @@ refinements = parse(Int, args[3])
 skip_labels = [nothing]
 refine_threshold = 1e-5
 
-reuse_bounds = false  # feel free to edit any of these
+reuse_bounds = true  # feel free to edit any of these
 reuse_pimdp = true
 reuse_policy = true
-reuse_refinement = true
+reuse_refinement = false
 prob_plot = true
 
 if experiment_number == 0
@@ -238,7 +238,8 @@ for refinement in 0:refinements
                                modes=dyn_modes)
 
     if refinement < refinements
-        if reuse_refinement && isfile(nn_bounds_dir * "/linear_trans_m_$(num_modes)_$(refinement+1).npy")
+        reuse_check = reuse_policy && reuse_pimdp && reuse_bounds && reuse_refinement
+        if reuse_check && isfile(nn_bounds_dir * "/linear_trans_m_$(num_modes)_$(refinement+1).npy")
             @info "Reusing refined regions"
             print("\n")
         else
