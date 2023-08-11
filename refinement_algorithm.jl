@@ -3,6 +3,7 @@ using Base.Threads
 using LinearAlgebra
 using SpecialFunctions
 using PyCall
+using JLD
 @pyimport numpy
 
 function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff, p_in_diff; dfa_init_state=1)
@@ -22,10 +23,19 @@ function refine_check(res, q_question, n_best, num_dfa_states, p_action_diff, p_
         sat_prob = (maxPrs[s] - minPrs[s])
 
         i_pimdp = (s-1)*num_dfa_states + dfa_init_state
-        p_actions = p_action_diff[i_pimdp]  # + p_in_diff[s]  # care about outgoing and incoming transitions
+        p_actions = p_action_diff[i_pimdp]  # + p_in_diff[s]  # outgoing transitions
 
         theta[idx] = p_actions * sat_prob
     end
+
+#     for (idx, s) in enumerate(q_question)
+#         sat_prob = (minPrs[s] - maxPrs[s])
+#
+#         i_pimdp = (s-1)*num_dfa_states + dfa_init_state
+#         p_actions = p_in_diff[s]  # incoming transitions
+#
+#         theta[idx] = p_actions * sat_prob
+#     end
 
     n_best = min(n_best, length(q_question))
     refine_idx = sortperm(theta)[1:n_best]
@@ -40,18 +50,27 @@ end
 
 
 function refinement_algorithm(refine_states, extents, modes, num_dims, global_dir_name, nn_bounds_dir, refinement;
-                              threshold=1e-5)
+                              threshold=1e-5, just_gp=false, reuse_dims=false)
 
     # load prior info
-    linear_transforms = numpy.load(nn_bounds_dir * "/linear_trans_m_1_$(refinement).npy")
-    linear_bias = numpy.load(nn_bounds_dir * "/linear_trans_b_1_$(refinement).npy")
-    linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_1_$(refinement).npy")
-    for mode in 2:num_modes
-        linear_transforms = cat(linear_transforms, numpy.load(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement).npy"), dims=6)
-        linear_bias = cat(linear_bias, numpy.load(nn_bounds_dir * "/linear_trans_b_$(mode)_$(refinement).npy"), dims=5)
-        linear_bounds = cat(linear_bounds, numpy.load(nn_bounds_dir * "/linear_bounds_$(mode)_$(refinement).npy"), dims=4)
-    end
 
+    if !just_gp
+        linear_transforms = numpy.load(nn_bounds_dir * "/linear_trans_m_1_$(refinement).npy")
+        linear_bias = numpy.load(nn_bounds_dir * "/linear_trans_b_1_$(refinement).npy")
+        linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_1_$(refinement).npy")
+        for mode in 2:num_modes
+            linear_transforms = cat(linear_transforms, numpy.load(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement).npy"), dims=6)
+            linear_bias = cat(linear_bias, numpy.load(nn_bounds_dir * "/linear_trans_b_$(mode)_$(refinement).npy"), dims=5)
+            linear_bounds = cat(linear_bounds, numpy.load(nn_bounds_dir * "/linear_bounds_$(mode)_$(refinement).npy"), dims=4)
+        end
+    else
+        linear_transforms = 1
+        linear_bias = 1
+        linear_bounds = numpy.load(nn_bounds_dir*"/linear_bounds_1_$(refinement).npy")
+        for mode in 2:num_modes
+            linear_bounds = cat(linear_bounds, numpy.load(nn_bounds_dir * "/linear_bounds_$(mode)_$(refinement).npy"), dims=4)
+        end
+    end
     # TODO, need to figure out how to do this in parallel
     keep_states = []
     for i in 1:size(extents)[1]-1
@@ -69,11 +88,30 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     new_linear_bounds = []
     num_added = 0
     dim_list = collect(1:num_dims)
+
+    dims_refined = Dict()
+    using_selected_dims = false
+    if reuse_dims && isfile(global_exp_dir * "/dims_refined_$(refinement).jld")
+        dims_refined = load(global_exp_dir * "/dims_refined_$(refinement).jld", "dims_refined")
+        using_selected_dims = true
+    end
+
+    smallest_dim = Dict()
+    for i in dim_list
+        smallest_dim[i] = 9e9
+    end
+
     for idx in refine_states
         # find which dimensions have the largest growth
-        refine_dim = dim_checker(extents[idx, :, :], linear_transforms, modes, idx, dim_list, threshold)
+        if using_selected_dims
+            # this is to compare policies on different models, ensures identical discretization
+            refine_dim = dims_refined[idx]
+        else
+            refine_dim = dim_checker(extents[idx, :, :], linear_transforms, modes, idx, dim_list, threshold, just_gp)
+            dims_refined[idx] = refine_dim
+        end
         # split the extent along that dimensions
-        new_regions = extent_splitter(extents[idx, :, :], refine_dim, threshold)
+        new_regions, smallest_dim = extent_splitter(extents[idx, :, :], refine_dim, threshold, smallest_dim)
         if isnothing(new_extents)
             new_extents = new_regions
         else
@@ -83,20 +121,24 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
         # get the NN posterior for the new regions
         repeats = size(new_regions)[1]
         for sub_idx in 1:repeats
-            temp = size(linear_transforms)
-            added_transform = reshape(linear_transforms[idx,:,:,:,:,:], (1, temp[2], temp[3], temp[4] ,temp[5], temp[6]))
-            new_transforms = cat(new_transforms, added_transform, dims=1)
+            if !just_gp
+                temp = size(linear_transforms)
+                added_transform = reshape(linear_transforms[idx,:,:,:,:,:], (1, temp[2], temp[3], temp[4] ,temp[5], temp[6]))
+                new_transforms = cat(new_transforms, added_transform, dims=1)
 
-            temp = size(linear_bias)
-            added_bias = reshape(linear_bias[idx,:,:,:,:], (1, temp[2], temp[3], temp[4] ,temp[5]))
-            new_bias = cat(new_bias, added_bias, dims=1)
-
+                temp = size(linear_bias)
+                added_bias = reshape(linear_bias[idx,:,:,:,:], (1, temp[2], temp[3], temp[4] ,temp[5]))
+                new_bias = cat(new_bias, added_bias, dims=1)
+            end
             # use this transform to get bounds with the vertices of the new extents
-            temp = new_posts_fnc(new_regions[sub_idx, :, :], linear_transforms, linear_bias, modes, idx, num_dims)
+            temp = new_posts_fnc(new_regions[sub_idx, :, :], linear_transforms, linear_bias, modes, idx, num_dims, just_gp)
             new_linear_bounds = cat(new_linear_bounds, temp, dims=1)
             num_added += 1
         end
     end
+    @info "Smallest discretization per dimension: $smallest_dim"
+    save(global_exp_dir * "/dims_refined_$(refinement).jld", "dims_refined", dims_refined)
+#     dims_refined = load(global_exp_dir * "/dims_refined_$(refinement).jld", "dims_refined")
 
     specific_extents = collect((kept):(kept+num_added-1))
     @info "Added $(num_added - length(refine_states)) regions"
@@ -107,9 +149,10 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     new_extents = vcat(new_extents, domain)
     numpy.save(global_exp_dir * "/extents_$(refinement+1)", new_extents)
 
-    new_transforms = vcat(linear_transforms[keep_states, :, :, :, :, :], new_transforms)
-
-    new_bias = vcat(linear_bias[keep_states, :, :, :, :], new_bias)
+    if !just_gp
+        new_transforms = vcat(linear_transforms[keep_states, :, :, :, :, :], new_transforms)
+        new_bias = vcat(linear_bias[keep_states, :, :, :, :], new_bias)
+    end
 
     new_linear_bounds = vcat(linear_bounds[keep_states, :, :, :], new_linear_bounds)
 
@@ -117,8 +160,12 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
     gp_bounds_dir = global_exp_dir  * "/gp_bounds"
 
     for mode in modes
-        numpy.save(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement+1)", new_transforms[:,:,:,:,:,mode])
-        numpy.save(nn_bounds_dir * "/linear_trans_b_$(mode)_$(refinement+1)", new_bias[:,:,:,:,mode])
+
+        if !just_gp
+            numpy.save(nn_bounds_dir * "/linear_trans_m_$(mode)_$(refinement+1)", new_transforms[:,:,:,:,:,mode])
+            numpy.save(nn_bounds_dir * "/linear_trans_b_$(mode)_$(refinement+1)", new_bias[:,:,:,:,mode])
+        end
+
         numpy.save(nn_bounds_dir * "/linear_bounds_$(mode)_$(refinement+1)", new_linear_bounds[:,:,:,mode])
 
         mean_bound = numpy.load(gp_bounds_dir*"/mean_data_$(mode)_$refinement.npy")
@@ -138,16 +185,23 @@ function refinement_algorithm(refine_states, extents, modes, num_dims, global_di
 end
 
 
-function new_posts_fnc(region, linear_transforms, linear_bias, modes, idx, dims)
+function new_posts_fnc(region, linear_transforms, linear_bias, modes, idx, dims, just_gp)
     x_ranges = [region[k,:] for k in 1:(size(region)[1])]
     vertices = [[vert...] for vert in Base.product(x_ranges...)]
 
     new_posts = nothing
     for mode in modes
-        lA = linear_transforms[idx,1,1,:,:,mode]
-        uA = linear_transforms[idx,2,1,:,:,mode]
-        l_bias = linear_bias[idx,1,1,:,mode]
-        u_bias = linear_bias[idx,2,1,:,mode]
+        if just_gp
+            lA = 1.
+            uA = 1.
+            l_bias = zeros(dims)
+            u_bias = zeros(dims)
+        else
+            lA = linear_transforms[idx,1,1,:,:,mode]
+            uA = linear_transforms[idx,2,1,:,:,mode]
+            l_bias = linear_bias[idx,1,1,:,mode]
+            u_bias = linear_bias[idx,2,1,:,mode]
+        end
 
         v_low = nothing
         v_up = nothing
@@ -183,15 +237,20 @@ function new_posts_fnc(region, linear_transforms, linear_bias, modes, idx, dims)
 end
 
 
-function dim_checker(region, linear_transforms, modes, idx, dim_list, threshold)
+function dim_checker(region, linear_transforms, modes, idx, dim_list, threshold, just_gp)
     x_ranges = [region[k,:] for k in 1:(size(region)[1])]
     vertices = [[vert...] for vert in Base.product(x_ranges...)]
 
     xi_max = 0
     max_dim = nothing
     for mode in modes
-        lA = linear_transforms[idx,1,1,:,:,mode]
-        uA = linear_transforms[idx,2,1,:,:,mode]
+        if just_gp
+            lA = 1.
+            uA = 1.
+        else
+            lA = linear_transforms[idx,1,1,:,:,mode]
+            uA = linear_transforms[idx,2,1,:,:,mode]
+        end
 
         v_low = []
         v_up = []
@@ -253,7 +312,7 @@ function dim_checker(region, linear_transforms, modes, idx, dim_list, threshold)
 end
 
 
-function extent_splitter(extent, refine_dims, threshold)
+function extent_splitter(extent, refine_dims, threshold, smallest_dim)
 
     num_dims = size(extent)[1]
     grid_size = []
@@ -265,6 +324,10 @@ function extent_splitter(extent, refine_dims, threshold)
                 dx /= 2.0
                 num_new *= 2
             end
+        end
+
+        if dx < smallest_dim[dim]
+            smallest_dim[dim] = dx
         end
 
         push!(grid_size, dx)
@@ -281,7 +344,7 @@ function extent_splitter(extent, refine_dims, threshold)
             discrete_sets[i, j, :] = state[j]
         end
     end
-    return discrete_sets[:, :, :]
+    return discrete_sets[:, :, :], smallest_dim
 
 
 end

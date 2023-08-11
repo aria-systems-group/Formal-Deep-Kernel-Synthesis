@@ -1,5 +1,6 @@
 
 using Plots
+using ColorSchemes
 using Printf
 
 
@@ -144,14 +145,21 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
     # Plot the cells
     plot_cell_verify(extents[end, :, :], 0.0, 0.0, min_threshold, state_outlines_flag=state_outlines_flag)
 
-    plotted_xy = []
+    plotted_xy = Dict()
+#     plotted_xy = []
     for i in maybe_regions
         xy = extents[i, 1:2, :]
-        if any([xy == plotted_xy[idx] for idx in 1:length(plotted_xy)])
-            continue
+#         if any([xy == plotted_xy[idx] for idx in 1:length(plotted_xy)])
+        if any([xy == key for key in keys(plotted_xy)])
+            if minPrs[i] > plotted_xy[xy]
+                plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+                plotted_xy[xy] = minPrs[i]
+            else
+                continue
+            end
         else
             plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
-            push!(plotted_xy, xy)
+            plotted_xy[xy] = minPrs[i]
         end
     end
 
@@ -312,14 +320,16 @@ function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; sta
 
     linealpha = state_outlines_flag ? 1.0 : 0.0
 
+#     color_wheel = ColorSchemes.RdYlGn_5
+    color_wheel = cgrad([:red, :yellow2, :green], [0, 0.5, 1])
     if min_prob_value >= threshold
         plot!(shape, color=:white, fillalpha=1, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
-        plot!(shape, color=:green, fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        plot!(shape, color=get(color_wheel, 1), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
     elseif max_prob_value < threshold
-        plot!(shape, color=:red, fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        plot!(shape, color=get(color_wheel, 0), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
     else
         plot!(shape, color=:white, fillalpha=1, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
-        plot!(shape, color=:yellow2, fillalpha=0.5, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        plot!(shape, color=get(color_wheel, min_prob_value), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
     end
 end
 
@@ -340,5 +350,3 @@ function which_extent(extents, x, num_regions, num_dims)
     end
     return num_regions+1
 end
-
-

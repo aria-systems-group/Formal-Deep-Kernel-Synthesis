@@ -62,7 +62,7 @@ end
 
 
 function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinement, num_modes, num_regions, num_dims,
-                                   label_fn, skip_labels, dfa, imdp, filename)
+                                   label_fn, skip_labels, dfa, imdp, filename; res=nothing)
     # this one is going to avoid making a sparse array and directly construct the pimdp file
 
     # define basic pimdp aspects from states and dfa
@@ -139,6 +139,10 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
 
     p_action_diff = []
     p_in_diff = zeros(num_regions+1)
+    policy = nothing
+    if !isnothing(res)
+        policy = res[:, 2]
+    end
 
     # this is actually super wasteful since it calculates the transitions for each dfa state ...
     open(filename, "w") do f
@@ -167,6 +171,11 @@ function direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinemen
                 p_action = 0
                 num_trans = Atomic{Float64}(0)
                 for mode in 1:(num_modes::Int)
+                    if !isnothing(policy)
+                        if mode != policy[i_pimdp]
+                            continue
+                        end
+                    end
 
                     mean_bounds = all_means[mode]
                     sig_bounds = all_sigs[mode]

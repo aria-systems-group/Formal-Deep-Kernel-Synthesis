@@ -1,3 +1,4 @@
+import torch.random
 
 from import_script import *
 from generic_fnc import DynModelNetRelu3, DynModelNetRelu2, DynModelNetRelu1, DynModelNetTanh1, DynModelNetTanh3
@@ -226,6 +227,7 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
         x_train = data_by_region[idx][0]
         y_train = data_by_region[idx][1]
 
+        torch.manual_seed((mode+idx)*2 + 5)
         perm = torch.randperm(np.shape(y_train)[1])
         used_data_idx = perm[:kernel_data_points]
 
@@ -266,10 +268,8 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                     if dim in process_noise["theta_dim"]:
                         # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
                         if len(domain) == 3:
-                            alpha_ = max(alpha[dim], 0.0075)
                             alpha_ = max(alpha[dim], 0.01)
                         else:
-                            alpha_ = max(alpha[dim], 0.005)
                             alpha_ = max(alpha[dim], 0.01)
             else:
                 alpha_ = alpha

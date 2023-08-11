@@ -19,13 +19,17 @@ exp_dir = EXPERIMENT_DIR * experiment_type
 experiment_number = parse(Int, args[2])
 refinements = parse(Int, args[3])
 skip_labels = [nothing]
+just_gp = false
 refine_threshold = 1e-5
 
-reuse_bounds = true  # feel free to edit any of these
+reuse_bounds = false  # feel free to edit any of these
 reuse_pimdp = true
 reuse_policy = true
-reuse_refinement = false
+reuse_refinement = true
 prob_plot = true
+
+compare_policies = true  # KEEP THIS AS FALSE UNLESS YOU HAVE POLICIES AND REFINEMENTS STORED IN THE PROPER FOLDER
+
 
 if experiment_number == 0
     global_dir_name = "sys_2d_lin"
@@ -79,6 +83,7 @@ elseif experiment_number == 3
     refine_threshold = 0.0124 # this is to adjust for numerical errors
 elseif experiment_number == 4
     global_dir_name = "dubins_sys_gp"
+    just_gp = true
     dyn_noise = [0.01, 0.01, 0.01]  # this is std dev of process noise
     dyn_modes = sys_3d_dynamics(dyn_noise)
     dfa = pickle.load(open(EXPERIMENT_DIR * "/dfa_reach_avoid", "r"))
@@ -87,9 +92,10 @@ elseif experiment_number == 4
     labels = Dict("b" => unsafe_set, "a" => goal_set)
     prob_plot = false
     skip_labels = ["b∧!a", "a∧!b"]
+    refine_threshold = 0.0124 # this is to adjust for numerical errors
 elseif experiment_number == 5
     global_dir_name = "sys_5d"
-    dyn_noise = [0.1, 0.1, 0.01, 0.01, 0.01]  # this is std dev of process noise
+    dyn_noise = [0.05, 0.05, 0.01, 0.01, 0.01]  # this is std dev of process noise
     dfa = pickle.load(open(EXPERIMENT_DIR * "/dfa_reach_avoid", "r"))
     dyn_modes = sys_5d(dyn_noise)
     unsafe_set = [[[-0.75, 0.0], [0.5, 2.0], [-0.3, 0.3], [-0.3, 0.3], [-0.3, 0.3]],
@@ -98,8 +104,9 @@ elseif experiment_number == 5
     labels = Dict("b" => unsafe_set, "a" => goal_set)
     prob_plot = false
     skip_labels = ["b∧!a", "a∧!b"]
+    refine_threshold = 0.0124 # this is to adjust for numerical errors
 elseif experiment_number == 6
-    global_dir_name = "dubins_sys_da"
+    global_dir_name = "dubins_sys_sd"
     dyn_noise = [0.01, 0.01, 0.01]  # this is std dev of process noise
     dyn_modes = sys_3d_dynamics(dyn_noise)
     dfa = pickle.load(open(EXPERIMENT_DIR * "/dfa_reach_avoid", "r"))
@@ -137,8 +144,6 @@ else
     use_personal = 0
 end
 
-use_prism = false
-
 for refinement in 0:refinements
 
     pimdp_filepath = global_exp_dir * "/pimdp_$(refinement).txt"
@@ -146,7 +151,6 @@ for refinement in 0:refinements
     extents = numpy.load(global_exp_dir * "/extents_$refinement.npy")
     num_regions = size(extents)[1] - 1
 
-#     n_best = floor(Int, num_regions/2)  # refine at most half of the states
     @info "The abstraction for refinement $refinement has $num_regions states"
 
     # define labels for every extent, this can be used to skip bounding obstacle posteriors
@@ -162,58 +166,47 @@ for refinement in 0:refinements
     states = [i for i in 1:num_regions+1]
     imdp = IMDPModel(states, modes, nothing, nothing, label_fn, extents)
 
-    if use_prism
-        prism_filepath = global_exp_dir * "/pimdp_$(refinement)"
-        pimdp = prism_pimdp(extents, dyn_noise, global_exp_dir, refinement, num_modes, num_regions, num_dims,
-                                       label_fn, skip_labels, dfa, imdp, prism_filepath)
-
-        prism_res = run_prism(global_exp_dir, prism_filepath, refinement, pimdp)
-
-        @info "Recreating pimdp for satisfaction probabilities T.T"
-        pimdp = pimdp_from_prism_res(extents, dyn_noise, global_exp_dir, refinement, num_modes, num_regions, num_dims,
-                                       label_fn, skip_labels, dfa, imdp, pimdp_filepath, prism_res)
-
-        @info "Calculating satisfaction probabilities"
-        res = run_synthesis(pimdp_filepath, k, refinement, EXPERIMENT_DIR; ep=1e-6)
+    res_filepath = global_exp_dir * "/policy_$(refinement)"
+    reuse_check = reuse_pimdp && reuse_bounds && ((refinement == 0) || reuse_refinement) && !compare_policies
+    if reuse_check && isfile(pimdp_filepath)
+        @info "Using saved PIMDP"
+        # generate a pimdp model for plotting
+        pimdp = fast_pimdp(dfa, imdp, num_regions)
+        p_action_diff = numpy.load(global_exp_dir*"/p_act_diff_$refinement.npy")
+        p_in_diff = numpy.load(global_exp_dir*"/p_in_diff_$refinement.npy")
     else
-        reuse_check = reuse_pimdp && reuse_bounds && ((refinement == 0) || reuse_refinement)
-        if reuse_check && isfile(pimdp_filepath)
-            @info "Using saved PIMDP"
-            # generate a pimdp model for plotting
-            pimdp = fast_pimdp(dfa, imdp, num_regions)
-            p_action_diff = numpy.load(global_exp_dir*"/p_act_diff_$refinement.npy")
-            p_in_diff = numpy.load(global_exp_dir*"/p_in_diff_$refinement.npy")
-        else
-            @info "Constructing and saving the PIMDP Model"
-            pimdp, p_action_diff, p_in_diff = direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinement,
-                                                                       num_modes, num_regions, num_dims, label_fn,
-                                                                       skip_labels, dfa, imdp, pimdp_filepath)
-            numpy.save(global_exp_dir*"/p_act_diff_$refinement", p_action_diff)
-            numpy.save(global_exp_dir*"/p_in_diff_$refinement", p_in_diff)
-        end
-
-        imdp = nothing
-
-        res_filepath = global_exp_dir * "/policy_$(refinement)"
-        reuse_check = reuse_policy && reuse_pimdp && reuse_bounds && (refinement < 1 || reuse_refinement)
-        if reuse_check && isfile(res_filepath * ".npy")
-            @info "Using saved policy"
+        @info "Constructing and saving the PIMDP Model"
+        res = nothing
+        if compare_policies
             res = numpy.load(res_filepath * ".npy")
-        else
-            @info "Running Synthesis"
-            accuracy = 1e-6
-            if length(dyn_noise) > 3
-                # it is too slow on higher dims, allow the upper bound some slack
-                accuracy = 1e-3
-            end
-            syn_runtime = @elapsed begin
-                res = run_synthesis(pimdp_filepath, -1, refinement, EXPERIMENT_DIR; ep=accuracy)
-            end
-            @info "Synthesis took $syn_runtime seconds"
-            numpy.save(res_filepath, res)
         end
-
+        pimdp, p_action_diff, p_in_diff = direct_pimdp_construction(extents, dyn_noise, global_exp_dir, refinement,
+                                                                   num_modes, num_regions, num_dims, label_fn,
+                                                                   skip_labels, dfa, imdp, pimdp_filepath; res=res)
+        numpy.save(global_exp_dir*"/p_act_diff_$refinement", p_action_diff)
+        numpy.save(global_exp_dir*"/p_in_diff_$refinement", p_in_diff)
     end
+
+    imdp = nothing
+
+    reuse_check = reuse_policy && reuse_pimdp && reuse_bounds && (refinement < 1 || reuse_refinement) && !compare_policies
+    if reuse_check && isfile(res_filepath * ".npy")
+        @info "Using saved policy"
+        res = numpy.load(res_filepath * ".npy")
+    else
+        @info "Running Synthesis"
+        accuracy = 1e-6
+        if length(dyn_noise) > 3
+            # it is too slow on higher dims, allow the upper bound some slack
+            accuracy = 1e-3
+        end
+        syn_runtime = @elapsed begin
+            res = run_synthesis(pimdp_filepath, -1, refinement, EXPERIMENT_DIR; ep=accuracy)
+        end
+        @info "Synthesis took $syn_runtime seconds"
+        numpy.save(res_filepath, res)
+    end
+
 
     # plot results
     plot_dir = global_exp_dir * "/plots"
@@ -225,7 +218,7 @@ for refinement in 0:refinements
     obs_key = "b"
     x0 = nothing
     if length(dyn_noise) == 2
-        x0 = [[-1.8, -1.7], [1.8, -1.82], [1.74, 0.53], [-1.74, 1.81]]
+        x0 = [[-1.8125, -1.7114], [1.7291, -1.921], [0.5451, 1.7682]]
     elseif length(dyn_noise) == 3
         x0 = [[0.221, 0.213, 0.21]]
     elseif length(dyn_noise) == 5
@@ -245,10 +238,17 @@ for refinement in 0:refinements
         else
             refinement_time = @elapsed begin
                 @info "Beginning refinement algorithm"
-                refine_states = refine_check(res, q_refine, n_best, num_dfa_states, p_action_diff, p_in_diff; dfa_init_state=1)
+                refine_filepath = global_exp_dir * "/refine_states_$(refinement)"
+                reuse_refine_states = true
+                if reuse_refine_states && isfile(refine_filepath * ".npy")
+                    refine_states = numpy.load(refine_filepath * ".npy")
+                else
+                    refine_states = refine_check(res, q_refine, n_best, num_dfa_states, p_action_diff, p_in_diff; dfa_init_state=1)
+                    numpy.save(refine_filepath, refine_states)
+                end
 
                 refinement_algorithm(refine_states, extents, modes, num_dims, global_dir_name, nn_bounds_dir, refinement;
-                                    threshold=refine_threshold)
+                                    threshold=refine_threshold, just_gp=just_gp, reuse_dims=reuse_refine_states)
             end
             @info "Refined regions created in $(refinement_time) seconds"
             print("\n")
