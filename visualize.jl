@@ -6,7 +6,7 @@ using Printf
 
 function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa, pimdp, refinement; num_dfa_states=1,
                          min_threshold=0.9, labeled_regions=Dict(), obs_key=nothing, prob_plots=false,
-                         state_outlines_flag=false, dfa_init_state=1, x0=nothing, modes=nothing)
+                         state_outlines_flag=false, dfa_init_state=1, x0=nothing, modes=nothing, use_color_wheel=true)
 
     X = extents[num_regions+1,:,:]
     minx = X[1, 1]
@@ -68,67 +68,33 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
 
     if prob_plots
         # Plot the maximum probabilities
-        if num_dims == 3
-            skips = 20
-            for j in 1:skips
-                these_thetas = j:skips:num_regions+1
-                plt_max = plot(aspect_ratio=1,
-                            size=(300,300), dpi=300,
-                            xlims=[minx, maxx], ylims=[miny, maxy],
-                            xtickfont=font(10),
-                            ytickfont=font(10),
-                            titlefont=font(10),
-                            xticks = [minx, 0, maxx],
-                            yticks = [miny, 0, maxy],
-                            grid=false)
-                [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in these_thetas]
-                plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-                savefig(plt_max, plot_dir * "/max_prob_t$(j).png")
+        plt_max = plot(aspect_ratio=1,
+                    size=(300,300), dpi=300,
+                    xlims=[minx, maxx], ylims=[miny, maxy],
+                    xtickfont=font(10),
+                    ytickfont=font(10),
+                    titlefont=font(10),
+                    xticks = [minx, 0, maxx],
+                    yticks = [miny, 0, maxy],
+                    grid=false)
+        [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
+        plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
+        savefig(plt_max, plot_dir * "/max_prob.png")
 
-                # Plot the minimum probabilities
-                plt_min = plot(aspect_ratio=1,
-                            size=(300,300), dpi=300,
-                            xlims=[minx, maxx], ylims=[miny, maxy],
-                            xtickfont=font(10),
-                            ytickfont=font(10),
-                            titlefont=font(10),
-                            xticks = [minx, 0, maxx],
-                            yticks = [miny, 0, maxy],
-                            grid=false,
-                            backgroundcolor=128)
-                [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in these_thetas]
-                plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-                savefig(plt_min, plot_dir * "/min_prob_t$(j).png")
-            end
-        else
-            plt_max = plot(aspect_ratio=1,
-                        size=(300,300), dpi=300,
-                        xlims=[minx, maxx], ylims=[miny, maxy],
-                        xtickfont=font(10),
-                        ytickfont=font(10),
-                        titlefont=font(10),
-                        xticks = [minx, 0, maxx],
-                        yticks = [miny, 0, maxy],
-                        grid=false)
-            [plot_cell(extents[i, :, :], maxPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
-            plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-            savefig(plt_max, plot_dir * "/max_prob.png")
-
-            # Plot the minimum probabilities
-            plt_min = plot(aspect_ratio=1,
-                        size=(300,300), dpi=300,
-                        xlims=[minx, maxx], ylims=[miny, maxy],
-                        xtickfont=font(10),
-                        ytickfont=font(10),
-                        titlefont=font(10),
-                        xticks = [minx, 0, maxx],
-                        yticks = [miny, 0, maxy],
-                        grid=false,
-                        backgroundcolor=128)
-            [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
-            plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
-            savefig(plt_min, plot_dir * "/min_prob.png")
-        end
+        # Plot the minimum probabilities
+        plt_min = plot(aspect_ratio=1,
+                    size=(300,300), dpi=300,
+                    xlims=[minx, maxx], ylims=[miny, maxy],
+                    xtickfont=font(10),
+                    ytickfont=font(10),
+                    titlefont=font(10),
+                    xticks = [minx, 0, maxx],
+                    yticks = [miny, 0, maxy],
+                    grid=false,
+                    backgroundcolor=128)
+        [plot_cell(extents[i, :, :], minPrs[i], state_outlines_flag=state_outlines_flag) for i in 1:num_regions] #
+        plot!(Plots.Shape([minx, minx, maxx, maxx], [miny, maxy, maxy, miny]), fillalpha=0, linecolor=:black, linewidth=2, label="")
+        savefig(plt_min, plot_dir * "/min_prob.png")
     end
 
     plt_verification = plot(aspect_ratio=1,
@@ -146,19 +112,17 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
     plot_cell_verify(extents[end, :, :], 0.0, 0.0, min_threshold, state_outlines_flag=state_outlines_flag)
 
     plotted_xy = Dict()
-#     plotted_xy = []
     for i in maybe_regions
         xy = extents[i, 1:2, :]
-#         if any([xy == plotted_xy[idx] for idx in 1:length(plotted_xy)])
         if any([xy == key for key in keys(plotted_xy)])
             if minPrs[i] > plotted_xy[xy]
-                plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+                plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag, use_color_wheel=use_color_wheel)
                 plotted_xy[xy] = minPrs[i]
             else
                 continue
             end
         else
-            plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag)
+            plot_cell_verify(extents[i, :, :], minPrs[i], maxPrs[i], min_threshold, state_outlines_flag=state_outlines_flag, use_color_wheel=use_color_wheel)
             plotted_xy[xy] = minPrs[i]
         end
     end
@@ -309,7 +273,7 @@ function plot_cell(extent, prob_value; state_outlines_flag=false, color=:black)
 end
 
 
-function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; state_outlines_flag=false)
+function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; state_outlines_flag=false, use_color_wheel=true)
     if max_prob_value < min_prob_value
         # this may happen if synthesis is run with a convergence value > 1e-6
         max_prob_value = min_prob_value
@@ -320,7 +284,6 @@ function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; sta
 
     linealpha = state_outlines_flag ? 1.0 : 0.0
 
-#     color_wheel = ColorSchemes.RdYlGn_5
     color_wheel = cgrad([:red, :yellow2, :green], [0, 0.5, 1])
     if min_prob_value >= threshold
         plot!(shape, color=:white, fillalpha=1, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
@@ -329,7 +292,11 @@ function plot_cell_verify(extent, min_prob_value, max_prob_value, threshold; sta
         plot!(shape, color=get(color_wheel, 0), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
     else
         plot!(shape, color=:white, fillalpha=1, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
-        plot!(shape, color=get(color_wheel, min_prob_value), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        if use_color_wheel
+            plot!(shape, color=get(color_wheel, min_prob_value), fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        else
+            plot!(shape, color=:yellow2, fillalpha=0.8, linewidth=1, linecolor=:black, linealpha=linealpha, foreground_color_border=:white, foreground_color_axis=:white, label="")
+        end
     end
 end
 

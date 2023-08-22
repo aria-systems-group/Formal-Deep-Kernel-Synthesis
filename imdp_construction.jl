@@ -723,8 +723,8 @@ function pimdp_from_prism_res(extents, dyn_noise, global_exp_dir, refinement, nu
                                 lower_mean = mean_bounds[i, dim, 1]
                                 upper_mean = mean_bounds[i, dim, 2]
 
-                                lower_sigma = sig_bounds[i, dim, 1] + dyn_noise[dim]
-                                upper_sigma = sig_bounds[i, dim, 2] + dyn_noise[dim]  # this is a std deviation
+                                lower_sigma = sqrt(sig_bounds[i, dim, 1]^2 + dyn_noise[dim]^2)
+                                upper_sigma = sqrt(sig_bounds[i, dim, 2]^2 + dyn_noise[dim]^2)  # this is a std deviation
 
                                 post_bounds = post[dim, :]
                                 post_low = post_bounds[1]

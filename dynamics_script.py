@@ -59,30 +59,10 @@ def g_5d_mode3(xs):
     return result
 
 
-def g_sin(x):
-    return 5. * np.sin(x)
-
-
-def g_cos(x):
-    return 5. * np.cos(x)
-
-
-def crazy_1d(x):
-    x_scale = [x_/5. for x_ in x]
-    part_1 = x * np.sin(x_scale)
-    x_scale = [x_/15. for x_ in x]
-    part_2 = 3. * np.cos(x_scale)
-    x_scale = [-x_ for x_ in x]
-    part_3 = 2. * np.exp(x_scale)
-    return part_1 + part_2 + part_3
-
-
-def g_right(x):
-    return x + (0.5 * np.cos(x)) + 0.25
-
-
-def g_left(x):
-    return x - (0.5 * np.sin(x)) - 0.25
+def g_vector(x):
+    result = [np.sin(x[0] + x[1]),
+              np.cos(x[0] - x[1])]
+    return result
 
 
 # ==================================================================================================================== #
@@ -144,46 +124,27 @@ def g_2d_as_3d_mode3(x):
 # ==================================================================================================================== #
 
 
-trust_1 = False
-
-
 def g_2d_mode0(x):
-    if trust_1:
-        result = [x[0] + 0.25 + 0.05*np.sin(x[1]),
-                  x[1] + 0.1*np.cos(x[0])]
-    else:
-        result = [x[0] + 0.5 + 0.2*np.sin(x[1]),
-                  x[1] + 0.4*np.cos(x[0])]
+    result = [x[0] + 0.5 + 0.2*np.sin(x[1]),
+              x[1] + 0.4*np.cos(x[0])]
     return result
 
 
 def g_2d_mode1(x):
-    if trust_1:
-        result = [x[0] + -0.25 + 0.05*np.sin(x[1]),
-                  x[1] + 0.1*np.cos(x[0])]
-    else:
-        result = [x[0] + -0.5 + 0.2*np.sin(x[1]),
-                  x[1] + 0.4*np.cos(x[0])]
+    result = [x[0] + -0.5 + 0.2*np.sin(x[1]),
+              x[1] + 0.4*np.cos(x[0])]
     return result
 
 
 def g_2d_mode2(x):
-    if trust_1:
-        result = [x[0] + 0.1*np.cos(x[1]),
-                  x[1] + 0.25 + 0.05*np.sin(x[0])]
-    else:
-        result = [x[0] + 0.4*np.cos(x[1]),
-                  x[1] + 0.5 + 0.2*np.sin(x[0])]
+    result = [x[0] + 0.4*np.cos(x[1]),
+              x[1] + 0.5 + 0.2*np.sin(x[0])]
     return result
 
 
 def g_2d_mode3(x):
-    if trust_1:
-        result = [x[0] + 0.1*np.cos(x[1]),
-                  x[1] + -0.25 + 0.05*np.sin(x[0])]
-    else:
-        result = [x[0] + 0.4*np.cos(x[1]),
-                  x[1] + -0.5 + 0.2*np.sin(x[0])]
+    result = [x[0] + 0.4*np.cos(x[1]),
+              x[1] + -0.5 + 0.2*np.sin(x[0])]
     return result
 
 # ==================================================================================================================== #
@@ -192,7 +153,6 @@ def g_2d_mode3(x):
 
 
 dubins_ts = 0.1
-# dubins_ts = 0.05
 
 
 def g_3d_mode1(xs, Ts=dubins_ts):
@@ -272,11 +232,9 @@ def g_3d_mode7(xs, Ts=dubins_ts):
     return result
 
 
-
 # ==================================================================================================================== #
 # 4D unicycle
 # ==================================================================================================================== #
-
 
 def g_unicycle_mode0(x):
     v = 0.5

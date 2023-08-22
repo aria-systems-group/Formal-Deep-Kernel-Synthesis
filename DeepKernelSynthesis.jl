@@ -22,14 +22,14 @@ skip_labels = [nothing]
 just_gp = false
 refine_threshold = 1e-5
 
-reuse_bounds = false  # feel free to edit any of these
+reuse_bounds = true  # feel free to edit any of these
 reuse_pimdp = true
 reuse_policy = true
 reuse_refinement = true
 prob_plot = true
 
-compare_policies = true  # KEEP THIS AS FALSE UNLESS YOU HAVE POLICIES AND REFINEMENTS STORED IN THE PROPER FOLDER
-
+compare_policies = false  # KEEP THIS AS FALSE UNLESS YOU HAVE POLICIES AND REFINEMENTS STORED IN THE PROPER FOLDER
+use_color_wheel = false
 
 if experiment_number == 0
     global_dir_name = "sys_2d_lin"
@@ -81,6 +81,7 @@ elseif experiment_number == 3
     prob_plot = false
     skip_labels = ["b∧!a", "a∧!b"]
     refine_threshold = 0.0124 # this is to adjust for numerical errors
+    use_color_wheel = false
 elseif experiment_number == 4
     global_dir_name = "dubins_sys_gp"
     just_gp = true
@@ -93,6 +94,7 @@ elseif experiment_number == 4
     prob_plot = false
     skip_labels = ["b∧!a", "a∧!b"]
     refine_threshold = 0.0124 # this is to adjust for numerical errors
+    use_color_wheel = false
 elseif experiment_number == 5
     global_dir_name = "sys_5d"
     dyn_noise = [0.05, 0.05, 0.01, 0.01, 0.01]  # this is std dev of process noise
@@ -116,6 +118,7 @@ elseif experiment_number == 6
     prob_plot = false
     skip_labels = ["b∧!a", "a∧!b"]
     refine_threshold = 0.0124 # this is to adjust for numerical errors
+    use_color_wheel = false
 end
 
 unsafe_label = "b"
@@ -144,7 +147,7 @@ else
     use_personal = 0
 end
 
-for refinement in 0:refinements
+for refinement in 1:refinements
 
     pimdp_filepath = global_exp_dir * "/pimdp_$(refinement).txt"
 
@@ -228,7 +231,7 @@ for refinement in 0:refinements
     q_refine = plot_nd_results(res, extents, num_regions, num_dims, plot_dir, dfa, pimdp, refinement;
                                num_dfa_states=num_dfa_states, min_threshold=satisfaction_threshold,
                                labeled_regions=labels, obs_key=unsafe_label, prob_plots=prob_plot, x0=x0,
-                               modes=dyn_modes)
+                               modes=dyn_modes, use_color_wheel=use_color_wheel)
 
     if refinement < refinements
         reuse_check = reuse_policy && reuse_pimdp && reuse_bounds && reuse_refinement

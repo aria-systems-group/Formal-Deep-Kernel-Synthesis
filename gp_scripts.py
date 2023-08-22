@@ -266,11 +266,8 @@ def deep_kernel_fixed_nn_local(all_data, mode, keys, use_reLU, num_layers, netwo
                 alpha_ = alpha[dim]
                 if "theta_dim" in list(process_noise):
                     if dim in process_noise["theta_dim"]:
-                        # for some reason there are a lot of errors if the noise is seeded low for theta dynamics
-                        if len(domain) == 3:
-                            alpha_ = max(alpha[dim], 0.01)
-                        else:
-                            alpha_ = max(alpha[dim], 0.01)
+                        # for some reason there are a lot of errors if the noise is seeded low, artificially increase it
+                        alpha_ = max(alpha[dim], 0.01)
             else:
                 alpha_ = alpha
             hypers = {'likelihood.noise_covar.noise': torch.tensor(alpha_), }
