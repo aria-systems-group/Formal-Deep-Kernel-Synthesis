@@ -36,6 +36,10 @@ This package depends on the `bmdp-tool` here: https://github.com/aria-systems-gr
 The tool has been pre-compiled using Make and the `synthesis` executable is in this directory.
 
 
+## Running the Code
+
+An example of how to run the code is shown in run_ex3.sh. Note that if you want to incorporate your own dynamics, they need to be defined in dynamics.py for regression of the model and dynamics.jl for simulation. Sorry.
+
 
 ## Citation 
 [1] Xu, H. Zhang, S. Wang, Y. Wang, S. Jana, X. Lin, and C.-J. Hsieh,
