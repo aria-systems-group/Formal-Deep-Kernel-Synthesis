@@ -54,6 +54,7 @@ elseif experiment_number == 1
               [[-1.25, 0.0], [1.0, 1.875]]]
     labels = Dict("b" => unsafe_set, "a" => goal_a, "c" => goal_c)
     skip_labels = ["b∧!a∧!c"]
+    use_color_wheel = true
 elseif experiment_number == 2
     global_dir_name = "sys_2d_gp"
     dyn_noise = [0.01, 0.01]  # this is std dev of process noise
@@ -70,6 +71,7 @@ elseif experiment_number == 2
               [[-1.25, 0.0], [1.0, 1.875]]]
     labels = Dict("b" => unsafe_set, "a" => goal_a, "c" => goal_c)
     skip_labels = ["b∧!a∧!c"]
+    use_color_wheel = true
 elseif experiment_number == 3
     global_dir_name = "dubins_sys"
     dyn_noise = [0.01, 0.01, 0.01]  # this is std dev of process noise
@@ -142,12 +144,12 @@ num_modes = general_data[1]
 num_dims = general_data[2]
 num_sub_regions = general_data[3]
 if length(general_data) == 5
-    use_personal = general_data[5]
+    use_single_dim = general_data[5]
 else
-    use_personal = 0
+    use_single_dim = 0
 end
 
-for refinement in 1:refinements
+for refinement in 2:refinements
 
     pimdp_filepath = global_exp_dir * "/pimdp_$(refinement).txt"
 
@@ -162,7 +164,7 @@ for refinement in 1:refinements
     # Get mean and sig bounds on gp
     @info "Bounding the GP mean and variance"
     reuse_check = reuse_bounds && ((refinement == 0) || reuse_refinement)
-    bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_check, label_fn, skip_labels, use_personal)
+    bound_gp(num_regions, num_modes, num_dims, refinement, global_exp_dir, reuse_check, label_fn, skip_labels, use_single_dim)
 
     # setup imdp structure
     modes = [i for i in 1:num_modes]
@@ -222,8 +224,10 @@ for refinement in 1:refinements
     x0 = nothing
     if length(dyn_noise) == 2
         x0 = [[-1.8125, -1.7114], [1.7291, -1.921], [0.5451, 1.7682]]
+        x0 = [[-1.8125, -1.7114], [-1.9212, 1.821], [0.5451, 1.7682]]
     elseif length(dyn_noise) == 3
         x0 = [[0.221, 0.213, 0.21]]
+        x0 = [[0.221, 0.313, 0.141]]
     elseif length(dyn_noise) == 5
         x0 = [[0.9801, -1.213, 0.001, 0.001, 0.001], [-1.001, -1.213, 0.001, 0.001, 0.001]]
     end

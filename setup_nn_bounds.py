@@ -56,22 +56,26 @@ if experiment_number == 0:
     process_dist = {"mu": [0., 0.], "sig": [0.01, 0.01], "dist": "multi_norm"}
     unknown_modes_list = [g_lin1, g_lin2, g_lin3]
     X = {"x1": [-4., 4.], "x2": [-4., 4.]}
-    GP_data_points = 200
+    GP_data_points = 1000
+    kernel_data_points = 100
     nn_epochs = 200
     learning_rate = 5e-4
     grid_len = 0.125
 elif experiment_number == 1:
     # 2D nonlinear dkl experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d"
-    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1]}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
     GP_data_points = 1000
-    kernel_data_points = 200
-    nn_epochs = 500  # 200
-    epochs = 600
-    grid_len = 0.125
+    kernel_data_points = 100
+    nn_epochs = 2000
+    width_1 = 64
+    width_2 = 64
+    num_layers = 2
     use_scaling = True
+    single_dim_nn = False
+    grid_len = 0.125
     merge_extents = True
     merge_bounds = {"unsafe": [[[-1.75, -1.25], [-0.75, 1.0]],
                                [[-1.0, -0.5], [-1.25, -0.875]],
@@ -81,12 +85,12 @@ elif experiment_number == 1:
 elif experiment_number == 2:
     # 2D nonlinear gp experiment, 4 modes, 200 data points per mode
     global_dir_name = "sys_2d_gp"
-    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm"}
+    process_dist = {"mu": [0., 0.], "sig": [0.0001, 0.0001], "dist": "multi_norm", "theta_dim": [0, 1]}
     unknown_modes_list = [g_2d_mode0, g_2d_mode1, g_2d_mode2, g_2d_mode3]
     X = {"x1": [-2., 2.], "x2": [-2., 2.]}
     use_regular_gp = True
     GP_data_points = 1000
-    kernel_data_points = 200
+    kernel_data_points = 100
     epochs = 600
     grid_len = 0.125
     merge_extents = True
@@ -103,7 +107,7 @@ elif experiment_number == 3:
     X = {"x1": [0., 10.], "x2": [0., 2.], "x3": [-.5, .5]}
     GP_data_points = 10000
     kernel_data_points = 400
-    nn_epochs = 3000
+    nn_epochs = 5000
     width_1 = 128
     width_2 = 128
     num_layers = 2

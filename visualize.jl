@@ -186,51 +186,118 @@ function plot_nd_results(res_mat, extents, num_regions, num_dims, plot_dir, dfa,
         end
 
         max_steps = 1000
-        for initial_state in x0
-            x_vec = [initial_state[1]]
-            y_vec = [initial_state[2]]
-            x = initial_state
-            s = which_extent(extents, x, num_regions, num_dims)
-            q_init = delta_(1, dfa, pimdp.labels[s])
-            q = q_init
-            traj_done = false
-            steps = 1
-            while !traj_done
-                row_idx = (s-1)*sizeQ + (dfa_num_map[q])
-                action = floor(Int, policy[row_idx])
-                f = modes[action]
-                x = f(x)
 
-                s = which_extent(extents, x, num_regions, num_dims)
-                if s == num_regions+1
-                    @info "Trajectory left the domain: $x"
-                    break
+        test_accuracy = true
+        if test_accuracy
+            success = 0.0
+            num_tests = 1000
+            for initial_state in x0
+
+                s = 75
+                count = 0
+                for i in 1:size(extents)[1]-1
+                    max_prob = maxPrs[i]
+                    min_prob = minPrs[i]
+                    if 0.2 > min_prob > 0.1
+                        @info [min_prob, max_prob]
+                        s = i
+                        break
+                    end
                 end
-                q = delta_(q, dfa, pimdp.labels[s])
 
-                if q == dfa_acc_state
-                    @info "Trajectory is successful!"
-                    append!(x_vec, [x[1]])
-                    append!(y_vec, [x[2]])
-                    traj_done = true
-                elseif q == dfa_sink_state
-                    @info "Trajectory violates the specification D:"
-                    traj_done = true
-                elseif steps > max_steps
-                    @info "Trajectory doesn't end after $max_steps steps..."
-                    traj_done = true
-                else
-                    append!(x_vec, [x[1]])
-                    append!(y_vec, [x[2]])
-                    steps += 1
+                region = extents[s, :, :]
+                @info "Region: $region"
+                x = [region[d,1] + (region[d,2] - region[d,1])*rand() for d in 1:3]
+
+                # simulate 1000 times and find success rate
+                s = which_extent(extents, x, num_regions, num_dims)
+                q_init = delta_(1, dfa, pimdp.labels[s])
+                q = q_init
+                @info "Min satisfaction prob at this state is $(indVmin[(s-1)*sizeQ + (dfa_num_map[q])])."
+                @info "Max satisfaction prob at this state is $(indVmax[(s-1)*sizeQ + (dfa_num_map[q])])."
+                for _ in 1:1000
+                    x = [region[d,1] + (region[d,2] - region[d,1])*rand() for d in 1:3] # copy(initial_state)
+                    s = which_extent(extents, x, num_regions, num_dims)
+                    q = copy(q_init)
+                    traj_done = false
+                    steps = 1
+                    while !traj_done
+                        row_idx = (s-1)*sizeQ + (dfa_num_map[q])
+                        action = floor(Int, policy[row_idx])
+                        f = modes[action]
+                        x = f(x)
+
+                        s = which_extent(extents, x, num_regions, num_dims)
+                        if s == num_regions+1
+                            @info "Trajectory left the domain: $x"
+                            break
+                        end
+                        q = delta_(q, dfa, pimdp.labels[s])
+
+                        if q == dfa_acc_state
+                            success += 1.0
+                            traj_done = true
+                        elseif q == dfa_sink_state
+                            traj_done = true
+                        elseif steps > max_steps
+                            traj_done = true
+                        else
+                            steps += 1
+                        end
+                    end
                 end
             end
 
-            scatter!([x_vec[1]], [y_vec[1]], color=:black, markershape=:circle, label="")
-            plot!(x_vec, y_vec, color=:black, label="", linewith=2)
-            scatter!([x_vec[end]], [y_vec[end]], color=:purple, markershape=:star5, label="")
+            @info "Simulated success rate is $(success/1000.0)"
+
+        else
+
+            for initial_state in x0
+                x_vec = [initial_state[1]]
+                y_vec = [initial_state[2]]
+                x = initial_state
+                s = which_extent(extents, x, num_regions, num_dims)
+                q_init = delta_(1, dfa, pimdp.labels[s])
+                q = q_init
+                traj_done = false
+                steps = 1
+                while !traj_done
+                    row_idx = (s-1)*sizeQ + (dfa_num_map[q])
+                    action = floor(Int, policy[row_idx])
+                    f = modes[action]
+                    x = f(x)
+
+                    s = which_extent(extents, x, num_regions, num_dims)
+                    if s == num_regions+1
+                        @info "Trajectory left the domain: $x"
+                        break
+                    end
+                    q = delta_(q, dfa, pimdp.labels[s])
+
+                    if q == dfa_acc_state
+                        @info "Trajectory is successful!"
+                        append!(x_vec, [x[1]])
+                        append!(y_vec, [x[2]])
+                        traj_done = true
+                    elseif q == dfa_sink_state
+                        @info "Trajectory violates the specification D:"
+                        traj_done = true
+                    elseif steps > max_steps
+                        @info "Trajectory doesn't end after $max_steps steps..."
+                        traj_done = true
+                    else
+                        append!(x_vec, [x[1]])
+                        append!(y_vec, [x[2]])
+                        steps += 1
+                    end
+                end
+
+                scatter!([x_vec[1]], [y_vec[1]], color=:black, markershape=:circle, label="")
+                plot!(x_vec, y_vec, color=:black, label="", linewith=2)
+                scatter!([x_vec[end]], [y_vec[end]], color=:purple, markershape=:star5, label="")
+            end
+            savefig(plt_verification, plot_dir * "/trajectories_results_$(refinement).png")
         end
-        savefig(plt_verification, plot_dir * "/trajectories_results_$(refinement).png")
     end
 
     return q_refine
