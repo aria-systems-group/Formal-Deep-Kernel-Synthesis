@@ -5,7 +5,7 @@ This code makes use of the α,β-CROWN verifier which is developed by a team fro
 Some modifications have been made from their main branch to produce needed outputs, hence the inclusion of the folder here.
 
 
-This also makes use of the PosteriorBounds.jl repo [5], which is automatically added to the Julia package manager via juliacall.
+This also makes use of the PosteriorBounds.jl repo [5], which is must be added to the Julia package manager as described below.
 
 ## Installation
 
