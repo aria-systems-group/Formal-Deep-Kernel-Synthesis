@@ -50,11 +50,6 @@ function sigma_low_bnb(gp, x_L, x_U, theta_vec, theta_vec_2, cK_inv_scaled;
                 x_ub1, lb1, ub1 = compute_bounds_sqe_low(gp, pair[1], pair[2], theta_vec, theta_vec_2, cK_inv_scaled, dx_L,
                                                          dx_U, z_i_vec, H, f, x_star_h, quad_vec, bi_x_h, sig_post, b_i_vec)
 
-#                 temp = ub1
-#                 ub1 = -lb1
-#                 lb1 = -temp
-
-                @info [lb1, ub1]
                 if ub1 <= lbest
                     lbest = ub1
                     ubest = lb1
@@ -137,9 +132,6 @@ function compute_bounds_sqe_low(gp, x_L, x_U, theta_vec, theta_vec_2, cK_inv_sca
     x_σ_ub = hcat(x_star_h)
     σ2_ub = sigma_prior*(1.0 - *(f_val + C + a_ij_sum))
     PosteriorBounds.compute_σ2!(sigma_post, gp, x_σ_ub)
-    # get upper bound on variance
-
-    @info max(σ2_ub, 0)
 
     return x_σ_ub, max(σ2_ub, 0), sigma_post[1]
 end
